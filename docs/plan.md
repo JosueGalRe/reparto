@@ -202,8 +202,9 @@ Va antes que el resto para que las rebanadas siguientes se prueben con la config
 
 ### 1.9 Corte
 
-- Se agrega `reparto` a `plugins` en `opencode.json`, después de `opencode-claude`. Para la validación el orden no importa (S9), pero así los `setup` ven el catálogo completo.
-- Se sacan OMO y `opencode-v1-compat` de `opencode.json`. `omo.jsonc` queda en dotfiles como vía de vuelta.
+- Se agrega `reparto` a `plugins` en `opencode.json` como plugin nativo, después de `opencode-claude`. Para la validación el orden no importa (S9), pero así los `setup` ven el catálogo completo.
+- Sale solo la línea de OMO de `options.plugins` de `opencode-v1-compat`. El shim se queda, porque carga `ponytail`, `opencode-pty`, `opencode-direnv`, `envsitter-guard`, `opencode-working-memory` y `rtk`; lo nativo es reparto, no todo el setup. `omo.jsonc` queda en dotfiles como vía de vuelta.
+- En Plannotator, `planningAgents` cambia "Sisyphus - ultraworker" y "Prometheus - Plan Builder" por `director` (y `dramaturgo` en la fase 2); `plan` se queda.
 - Antes de sacar OMO se portan a `~/dotfiles/agents/skills/` los skills suyos que se usan, con el aviso SUL-1.0 (ADR 0001). Sin OMO, V2 no los carga. La lista y los conteos están en [referencias/skills-de-omo.md](./referencias/skills-de-omo.md). Los guiones de reparto solo nombran skills que existan después del corte.
 - **Escenario:** una semana de uso diario sin volver a OMO. Si hay que volver, se anota el motivo.
 
