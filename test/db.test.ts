@@ -34,9 +34,9 @@ test("ON CONFLICT: la última baja del mismo proveedor reemplaza a la anterior; 
 
 test("una sola fila abierta por hija", () => {
   const db = openDb(join(dir, "c.db"));
-  const fila = { hija: "ses_x", padre: "ses_p", actor: "a/b", boot_id: "b", pid: 1, starttime: "1", creado: 0 };
-  const insert = db.query(`INSERT INTO encargos (hija, padre, actor, estado, boot_id, pid, starttime, creado)
-    VALUES ($hija, $padre, $actor, $estado, $boot_id, $pid, $starttime, $creado)`);
+  const fila = { hija: "ses_x", padre: "ses_p", a: "rapido", actor: "a/b", background: 1, boot_id: "b", pid: 1, starttime: "1", creado: 0 };
+  const insert = db.query(`INSERT INTO encargos (hija, padre, a, actor, background, estado, boot_id, pid, starttime, creado)
+    VALUES ($hija, $padre, $a, $actor, $background, $estado, $boot_id, $pid, $starttime, $creado)`);
   insert.run({ ...fila, estado: "corriendo" });
   expect(() => insert.run({ ...fila, estado: "en_cola" })).toThrow(/UNIQUE/);
   insert.run({ ...fila, estado: "terminado" });

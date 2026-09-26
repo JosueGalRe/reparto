@@ -5,6 +5,7 @@ import { bajasVigentes } from "./bajas.ts";
 import { readCatalog } from "./catalog.ts";
 import { configPath, loadConfig } from "./config.ts";
 import { db } from "./db.ts";
+import { destinos, encargos } from "./encargos.ts";
 import { log } from "./log.ts";
 import { proceso } from "./process.ts";
 
@@ -88,6 +89,65 @@ export default Plugin.define({
         await ctx.session.hook("model.request", (input) => {
           log.info("debug: model.request", { sessionID: input.sessionID, agent: input.agent, kind: input.kind, model: input.model });
         });
+
+      const e = encargos(ctx, config);
+      // codemode: false, o el modelo solo las alcanza desde `execute` (S11)
+      await ctx.tool.transform((editor) => {
+        editor.add({
+          name: "delegar",
+          description:
+            "Delegate work to a reparto agent or papel in a new child session (an encargo), or resume one with `sesion`. " +
+            "Synchronous by default: returns the child's final message. With `background: true` returns at once, and a notice arrives in this conversation when the encargo ends, fails, is interrupted or goes stale.",
+          input: {
+            type: "object",
+            properties: {
+              a: { type: "string", enum: [...destinos], description: "Agent or papel that takes the encargo. Ignored with `sesion`." },
+              prompt: { type: "string", description: "The brief: goal, context, constraints, acceptance, report." },
+              background: { type: "boolean", description: "Return at once and get a notice when it closes." },
+              sesion: { type: "string", description: "Child session id of an earlier encargo to resume, keeping its history." },
+              skills: { type: "array", items: { type: "string" }, description: "Skill ids to load into the child's first message." },
+            },
+            required: ["prompt"],
+            additionalProperties: false,
+          },
+          options: { codemode: false },
+          execute: (input, tool) => e.delegar(input, tool),
+        });
+        editor.add({
+          name: "bitacora",
+          description:
+            "Show what an encargo did: its tool calls with their key argument, and its final message. `detalle: \"completo\"` adds the (trimmed) results. Works after the child was compacted.",
+          input: {
+            type: "object",
+            properties: {
+              id: { type: "string", description: "Child session id of the encargo." },
+              detalle: { type: "string", enum: ["completo"] },
+            },
+            required: ["id"],
+            additionalProperties: false,
+          },
+          options: { codemode: false },
+          execute: (input) => e.bitacora(input),
+        });
+      });
+      // session.context pierde las tool calls al compactar (S14): la bitácora se llena acá
+      await ctx.tool.hook("execute.after", (x) => e.registrarLlamada(x.status === "completed" ? { ...x, result: x.result } : { ...x, error: x.error }));
+
+      const stop = new AbortController();
+      void (async () => {
+        try {
+          for await (const ev of ctx.event.subscribe({ signal: stop.signal })) e.evento(ev);
+        } catch (error) {
+          if (!stop.signal.aborted) log.error("suscripción a eventos terminó", { location: ctx.location.directory, error: String(error) });
+        }
+      })();
+      const vigilante = setInterval(() => void e.vigilar(), 60_000);
+      // sin esperarla, para no bloquear el arranque
+      void e.reconciliar();
+      return () => {
+        stop.abort();
+        clearInterval(vigilante);
+      };
     } catch (error) {
       log.error("inactivo: setup falló", { location: ctx.location.directory, error: String(error) });
     }

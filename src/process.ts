@@ -7,6 +7,14 @@ export interface Proceso {
   /** Lo último que se logueó de la validación, para no repetirlo en cada location ni en cada model.updated. */
   firma: string;
   db?: Database;
+  /** Cola por proveedor: encargos corriendo y los que esperan cupo. */
+  colas?: Map<string, { corriendo: number; espera: (() => void)[] }>;
+  /** Qué proveedor ocupa cada encargo que tiene cupo. */
+  cupos?: Map<number, string>;
+  /** Hijas con un encargo abierto en este proceso, con su última actividad. */
+  abiertos?: Map<string, { id: number; actividad: number; estancado?: boolean }>;
+  /** Encargos que alguna instancia está cerrando, para no pedir su outcome dos veces. */
+  cerrando?: Set<number>;
 }
 
 // En 2.0.18 cada location importa su propia copia del módulo, pero todas comparten globalThis (sondas.md, S15).
