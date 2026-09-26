@@ -1,7 +1,9 @@
 import { Plugin } from "@opencode/plugin";
 import { publicar, validar } from "./actores.ts";
+import { bajasVigentes } from "./bajas.ts";
 import { readCatalog } from "./catalog.ts";
 import { configPath, loadConfig } from "./config.ts";
+import { db } from "./db.ts";
 import { log } from "./log.ts";
 
 // Id de esta copia del módulo: S15 dice que se comparte entre las locations de un proceso.
@@ -20,6 +22,8 @@ export default Plugin.define({
       }
       const { config } = loaded;
       log.info("activo", { location: ctx.location.directory, config: path, version: ctx.app.version, modulo });
+      const bajas = bajasVigentes(db());
+      if (bajas.length) log.info("bajas vigentes", { location: ctx.location.directory, bajas });
 
       // El transform ve el catálogo completo, sin importar el orden de `plugins`, y se repite en cada
       // model.updated (S9). El callback es sincrónico: guarda el catálogo y la validación corre fuera.

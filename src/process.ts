@@ -1,3 +1,4 @@
+import type { Database } from "bun:sqlite";
 import type { Validacion } from "./actores.ts";
 
 /** Estado compartido por todas las instancias del proceso. */
@@ -5,6 +6,7 @@ export interface Proceso {
   validacion?: Validacion;
   /** Lo último que se logueó de la validación, para no repetirlo en cada location ni en cada model.updated. */
   firma: string;
+  db?: Database;
 }
 
 // En 2.0.18 cada location importa su propia copia del módulo, pero todas comparten globalThis (sondas.md, S15).
