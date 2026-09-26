@@ -1,0 +1,8 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": { "claude-code": { "name": "Claude Code" } },
+  "plugins": [
+    "file:///home/josuegalre/projects/opencode-claude",
+    "file:///home/josuegalre/projects/reparto"
+  ]
+}

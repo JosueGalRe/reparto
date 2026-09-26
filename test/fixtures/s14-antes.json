@@ -1,0 +1,227 @@
+[
+  {
+    "id": "msg_0d940cdef001H3fkM3Rop7U4mn",
+    "time": {
+      "created": 1790351298045
+    },
+    "text": "Call the eco tool with texto=alfa, then call it with texto=beta, then read the file /tmp/reparto-sondas/a/nota.txt with the read tool (it may not exist), then reply with a one-line summary.",
+    "type": "user"
+  },
+  {
+    "id": "msg_0d940ce04001JlPhgYlBPdi1D7",
+    "time": {
+      "created": 1790351298063,
+      "streamed": 1790351304407,
+      "completed": 1790351304410
+    },
+    "type": "assistant",
+    "agent": "sonda-sub",
+    "model": {
+      "id": "k3",
+      "providerID": "kimi-code-plan-global",
+      "variant": "low"
+    },
+    "content": [
+      {
+        "type": "reasoning",
+        "text": "Sequential per user. Call eco alfa, then beta, then read.",
+        "state": {
+          "reasoningField": "reasoning_content"
+        },
+        "time": {
+          "created": 1790351303228,
+          "completed": 1790351304403
+        }
+      },
+      {
+        "type": "tool",
+        "id": "tool_UJzmjBLBDPkymCuDFhXPdC3U",
+        "name": "eco",
+        "executed": false,
+        "state": {
+          "status": "completed",
+          "input": {
+            "texto": "alfa"
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "ECO:alfa"
+            }
+          ],
+          "metadata": {
+            "truncated": false
+          }
+        },
+        "time": {
+          "created": 1790351304168,
+          "ran": 1790351304406,
+          "completed": 1790351304409
+        }
+      }
+    ],
+    "finish": "tool-calls",
+    "rawFinish": "tool_calls",
+    "cost": 0,
+    "tokens": {
+      "input": 9754,
+      "output": 51,
+      "reasoning": 16,
+      "cache": {
+        "read": 2816,
+        "write": 0
+      }
+    }
+  },
+  {
+    "id": "msg_0d940e6e4001hU9Xzthe9l2Opf",
+    "time": {
+      "created": 1790351304429,
+      "streamed": 1790351309863,
+      "completed": 1790351309866
+    },
+    "type": "assistant",
+    "agent": "sonda-sub",
+    "model": {
+      "id": "k3",
+      "providerID": "kimi-code-plan-global",
+      "variant": "low"
+    },
+    "content": [
+      {
+        "type": "tool",
+        "id": "tool_N2tlthsPMwWpiyLLJFF3pvLk",
+        "name": "eco",
+        "executed": false,
+        "state": {
+          "status": "completed",
+          "input": {
+            "texto": "beta"
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "ECO:beta"
+            }
+          ],
+          "metadata": {
+            "truncated": false
+          }
+        },
+        "time": {
+          "created": 1790351309327,
+          "ran": 1790351309862,
+          "completed": 1790351309865
+        }
+      }
+    ],
+    "finish": "tool-calls",
+    "rawFinish": "tool_calls",
+    "cost": 0,
+    "tokens": {
+      "input": 123,
+      "output": 51,
+      "reasoning": 1,
+      "cache": {
+        "read": 12544,
+        "write": 0
+      }
+    }
+  },
+  {
+    "id": "msg_0d940fc33001ZXtnKU2dqBw0I3",
+    "time": {
+      "created": 1790351309885,
+      "streamed": 1790351315144,
+      "completed": 1790351315152
+    },
+    "type": "assistant",
+    "agent": "sonda-sub",
+    "model": {
+      "id": "k3",
+      "providerID": "kimi-code-plan-global",
+      "variant": "low"
+    },
+    "content": [
+      {
+        "type": "tool",
+        "id": "tool_Shs2tJXTeTS7MiPxaSSk9zi0",
+        "name": "read",
+        "executed": false,
+        "state": {
+          "status": "completed",
+          "input": {
+            "path": "/tmp/reparto-sondas/a/nota.txt"
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "Read file /tmp/reparto-sondas/a/nota.txt, lines 1-1\n1: hola"
+            }
+          ],
+          "metadata": {
+            "truncated": false
+          }
+        },
+        "time": {
+          "created": 1790351314459,
+          "ran": 1790351315142,
+          "completed": 1790351315150
+        }
+      }
+    ],
+    "finish": "tool-calls",
+    "rawFinish": "tool_calls",
+    "cost": 0,
+    "tokens": {
+      "input": 205,
+      "output": 60,
+      "reasoning": 1,
+      "cache": {
+        "read": 12544,
+        "write": 0
+      }
+    }
+  },
+  {
+    "id": "msg_0d94110d9001fqWClzNy6tHJAx",
+    "time": {
+      "created": 1790351315169,
+      "streamed": 1790351320921,
+      "completed": 1790351320922
+    },
+    "type": "assistant",
+    "agent": "sonda-sub",
+    "model": {
+      "id": "k3",
+      "providerID": "kimi-code-plan-global",
+      "variant": "low"
+    },
+    "content": [
+      {
+        "type": "text",
+        "text": "Eco returned \"ECO:alfa\" and \"ECO:beta\", and nota.txt contains: \"hola\"."
+      }
+    ],
+    "finish": "stop",
+    "rawFinish": "stop",
+    "cost": 0,
+    "tokens": {
+      "input": 317,
+      "output": 40,
+      "reasoning": 1,
+      "cache": {
+        "read": 12544,
+        "write": 0
+      }
+    }
+  },
+  {
+    "id": "msg_0d941275c001Vqc7RxARnNrUMT",
+    "time": {
+      "created": 1790351320924
+    },
+    "type": "idle",
+    "outcome": "succeeded"
+  }
+]
