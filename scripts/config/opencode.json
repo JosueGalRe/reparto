@@ -3,6 +3,6 @@
   "provider": { "claude-code": { "name": "Claude Code" } },
   "plugins": [
     "file:///home/josuegalre/projects/opencode-claude",
-    "file:///home/josuegalre/projects/reparto"
+    { "package": "file:///home/josuegalre/projects/reparto", "options": { "config": "/tmp/reparto-dev/reparto.jsonc" } }
   ]
 }

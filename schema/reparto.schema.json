@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "reparto",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "$schema": { "type": "string" },
+    "agentes": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/reparto" },
+      "properties": {
+        "director": { "$ref": "#/$defs/reparto" },
+        "build": { "$ref": "#/$defs/reparto" },
+        "utilero": { "$ref": "#/$defs/reparto" },
+        "archivista": { "$ref": "#/$defs/reparto" },
+        "oracle": { "$ref": "#/$defs/reparto" },
+        "dramaturgo": { "$ref": "#/$defs/reparto" },
+        "critico": { "$ref": "#/$defs/reparto" },
+        "regidor": { "$ref": "#/$defs/reparto" }
+      }
+    },
+    "papeles": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "rapido": { "$ref": "#/$defs/reparto" },
+        "visual": { "$ref": "#/$defs/reparto" },
+        "profundo": { "$ref": "#/$defs/reparto" },
+        "estelar": { "$ref": "#/$defs/reparto" },
+        "prosa": { "$ref": "#/$defs/reparto" }
+      }
+    },
+    "proveedores": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "concurrencia": { "type": "integer", "minimum": 1, "description": "Encargos a la vez por proceso. Default 3." },
+          "plazoBaja": { "type": "string", "pattern": "^\\d+[mhd]$", "description": "Duración de una baja por cuota si el proveedor no informa el reset: \"30m\", \"5h\", \"7d\"." }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "actor": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["model"],
+      "properties": {
+        "model": { "type": "string", "pattern": "^[^/]+/.+$", "description": "<providerID>/<modelID>" },
+        "variant": { "type": "string", "minLength": 1, "description": "Id exacto de un variant del catálogo de V2. Omitido: default del proveedor." }
+      }
+    },
+    "reparto": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["titular"],
+      "properties": {
+        "titular": { "$ref": "#/$defs/actor" },
+        "suplentes": { "type": "array", "items": { "$ref": "#/$defs/actor" } }
+      }
+    }
+  }
+}
