@@ -7,6 +7,7 @@ import { configPath, loadConfig } from "./config.ts";
 import { db } from "./db.ts";
 import { destinos, encargos } from "./encargos.ts";
 import { log } from "./log.ts";
+import { escribirPendientes, estados, formatear, leerPendientes, parsearItems } from "./pendientes.ts";
 import { proceso } from "./process.ts";
 
 // Id de esta copia del módulo: en 2.0.18 cada location importa la suya (sondas.md, S15).
@@ -128,6 +129,33 @@ export default Plugin.define({
           },
           options: { codemode: false },
           execute: (input) => e.bitacora(input),
+        });
+        editor.add({
+          name: "pendientes",
+          description:
+            "Read or rewrite this session's work list. Without `items` it returns the list; with `items` it replaces the whole list and returns it. " +
+            "Survives compaction. Keep one item `en_curso` at a time and mark items `hecho` as soon as they are done.",
+          input: {
+            type: "object",
+            properties: {
+              items: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: { texto: { type: "string" }, estado: { type: "string", enum: [...estados] } },
+                  required: ["texto"],
+                  additionalProperties: false,
+                },
+              },
+            },
+            additionalProperties: false,
+          },
+          options: { codemode: false },
+          execute: async (input, tool) => {
+            const items = parsearItems(input);
+            if (items && !escribirPendientes(db(), tool.sessionID, items)) throw new Error("pendientes: no se pudo guardar (SQLite); ver el log de reparto");
+            return { content: formatear(items ?? leerPendientes(db(), tool.sessionID)) };
+          },
         });
       });
       // session.context pierde las tool calls al compactar (S14): la bitácora se llena acá
