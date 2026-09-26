@@ -438,8 +438,26 @@ El 2026-09-26, al arrancar la fase 1, el binario ya era `opencode v2.0.18` (tamb
 | S3 | — |
 | S7 | — |
 | S8 | — |
-| S9 | — |
+| S9 | 1.2, escenario con OpenCode real: `openai/gpt-4o`, `o3`, `gpt-4.1` y `gpt-5` salen del transform con `enabled: false` (no están en `model.list`), y con reparto antes de `opencode-claude` en `plugins` el transform igual ve `claude-code/claude-opus-5-5` |
 | S10 | — |
 | S13 | — |
 | S14 | — |
-| S15 | — |
+| S15 | **Contradicha en 2.0.18** en un punto: el módulo del plugin no se comparte entre locations (ver abajo). El resto no se volvió a probar todavía |
+
+### S15: el módulo ya no se comparte entre locations
+
+S15 decía que el módulo del plugin se comparte entre las locations de un proceso. En 2.0.18 no: cada location importa su propia copia, y lo que se comparte es `globalThis`. Lo mostró la 1.2, con un id aleatorio a nivel de módulo y un solo servidor (4297) con las locations `a` y `b`:
+
+```
+{"time":"19:19:56.864Z","location":"/tmp/reparto-dev/a","modulo":"6bd7d84f"}   pid 37552
+{"time":"19:19:59.541Z","location":"/tmp/reparto-dev/b","modulo":"cc61c3db"}   pid 37552
+```
+
+Con una clave en `globalThis` que escribe solo la primera instancia:
+
+```
+{"location":"/tmp/reparto-dev/a","modulo":"33c5977b","global":"33c5977b"}   pid 37691
+{"location":"/tmp/reparto-dev/b","modulo":"1065afc1","global":"33c5977b"}   pid 37691
+```
+
+**Consecuencia.** El estado del proceso (la cola por proveedor de 1.6 y la última validación de actores de 1.2) vive en `globalThis[Symbol.for("reparto.proceso")]` (`src/process.ts`). Con eso, dos locations dan un solo bloque de exclusiones en el log (pid 53746, módulos `7d1b3eed` y `5d20c7b0`). Plan 1.6 actualizado.
