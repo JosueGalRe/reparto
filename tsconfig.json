@@ -10,5 +10,5 @@
     "resolveJsonModule": true,
     "types": ["bun"]
   },
-  "include": ["server.ts", "src", "test"]
+  "include": ["server.ts", "src", "test", "scripts"]
 }
