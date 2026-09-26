@@ -436,10 +436,10 @@ El 2026-09-26, al arrancar la fase 1, el binario ya era `opencode v2.0.18` (tamb
 |---|---|
 | S1 | — |
 | S3 | — |
-| S7 | — |
-| S8 | — |
+| S7 | 1.5, escenarios de shell del director: V2 niega `sed -i`, `rg hola; rm y.txt` y `git difftool --extcmd=…` (tramo fuera de la lista), `rg hola > f` y `git diff --output=f` pasan las reglas y los niega el hook `evaluate`, y `rg hola notas.md \| head -1` pasa. Dato nuevo: ``rg `touch f` `` lo niega V2 sin llegar al hook. Las tools negadas no llegan al modelo: el director ve `glob, grep, question, read, shell, skill, webfetch, websearch` y `build` ve además `edit`, `write`, `execute` y `pty_*`, sin `subagent` |
+| S8, en parte | 1.5, "sesión del director con otro modelo": `switchModel` dentro del hook `prompt` hace que ese mismo turno salga con `claude-opus-5-5#xhigh` en vez de `haiku#low`. El camino por `retry` se prueba en 1.8 |
 | S9 | 1.2, escenario con OpenCode real: `openai/gpt-4o`, `o3`, `gpt-4.1` y `gpt-5` salen del transform con `enabled: false` (no están en `model.list`), y con reparto antes de `opencode-claude` en `plugins` el transform igual ve `claude-code/claude-opus-5-5` |
-| S10 | — |
+| S10, en parte | 1.5: una sesión creada por API sin agente corre con `director` (`AgentEditor.default`), `AgentEditor.update` crea los agentes nuevos y `build` se edita (`subagent: deny` al final). TUI y OpenChamber no se abrieron |
 | S13 | — |
 | S14 | — |
 | S15 | **Contradicha en 2.0.18** en un punto: el módulo del plugin no se comparte entre locations (ver abajo). El resto no se volvió a probar todavía |

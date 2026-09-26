@@ -51,6 +51,12 @@ export function validar(config: Config, catalog: Catalog, agentesV2?: readonly s
   return resultado;
 }
 
+/** `provider/model` → Model.Ref de V2. Un string en su lugar deja al agente mal formado sin error (S10). */
+export function modelRef(actor: Actor) {
+  const i = actor.model.indexOf("/");
+  return { providerID: actor.model.slice(0, i), id: actor.model.slice(i + 1), ...(actor.variant ? { variant: actor.variant } : {}) };
+}
+
 /** Primer actor válido. 1.8 agrega las bajas. */
 export const resolver = (validacion: Validacion, nombre: string): Actor | undefined => validacion.actores.get(nombre)?.[0];
 
