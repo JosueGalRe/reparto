@@ -189,6 +189,21 @@ export function textoAviso(e: Encargo, ultimoActor: string, titulo: string): str
   }
 }
 
+export function textoPermiso(titulo: string, action: string, resources: readonly string[], requestID: string): string {
+  return `[reparto] ${titulo} — espera permiso: ${action} ${resources.join(", ")} (${requestID})\nÁbrela en chats por su título y aprueba o rechaza ahí.`;
+}
+
+export function permisoPendiente(hija: string): boolean {
+  return !!db().query("SELECT 1 FROM permisos WHERE hija = $hija AND estado = 'pendiente' LIMIT 1").get({ hija });
+}
+
+export function registrarPermiso(request: { id: string; sessionID: string; action: string; resources: readonly string[] }): boolean {
+  return write(db(), "permiso pedido", () =>
+    db().query("INSERT OR IGNORE INTO permisos (request_id, hija, action, resources, estado) VALUES ($id, $hija, $action, $resources, 'pendiente')")
+      .run({ id: request.id, hija: request.sessionID, action: request.action, resources: JSON.stringify(request.resources) }).changes,
+  ) === 1;
+}
+
 export function encargos(ctx: Ctx, config: Config) {
   const limite = (proveedor: string) => config.proveedores?.[proveedor]?.concurrencia ?? CONCURRENCIA;
 
@@ -321,6 +336,7 @@ export function encargos(ctx: Ctx, config: Config) {
     // Chequeo e INSERT en la misma transacción IMMEDIATE: dos retomas simultáneas, aun desde procesos distintos, no pasan las dos.
     const id = write(db(), "crear encargo", () => {
       if (db().query("SELECT 1 FROM encargos WHERE hija = $hija AND estado IN ('en_cola', 'corriendo', 'estancado')").get({ hija })) return 0;
+      db().query("UPDATE permisos SET estado = 'respondido' WHERE hija = $hija AND estado = 'pendiente'").run({ hija });
       return Number(
         db()
           .query(
@@ -445,14 +461,39 @@ export function encargos(ctx: Ctx, config: Config) {
 
   /** Eventos de todas las locations del proceso (S15); los session.execution.* no traen location (S13). */
   function evento(ev: { type: string; created?: number; data?: unknown }) {
-    const data = ev.data as { sessionID?: string; error?: { message?: string } } | undefined;
+    const data = ev.data as { sessionID?: string; id?: string; requestID?: string; action?: string; resources?: string[]; error?: { message?: string } } | undefined;
     const abierto = data?.sessionID ? abiertos().get(data.sessionID) : undefined;
     if (!abierto) return;
     if (ev.type === "session.execution.succeeded" || ev.type === "session.execution.failed" || ev.type === "session.execution.interrupted") {
       void cerrar(abierto.id, { created: ev.created ?? Date.now(), error: data?.error?.message });
       return;
     }
-    if (/^session\.(step|tool|text|reasoning)\./.test(ev.type)) {
+    if (ev.type === "permission.asked" && data?.id && data.action && data.resources && data.sessionID) {
+      const e = leer(abierto.id);
+      if (!e || !isOpen(e)) return;
+      const { id, action, resources, sessionID } = data;
+      actividad();
+      if (registrarPermiso({ id, action, resources, sessionID })) void (async () => {
+        try {
+          const hija = await ctx.session.get({ sessionID: e.hija });
+          await ctx.session.prompt({ sessionID: e.padre, text: textoPermiso(hija.title ?? e.hija, action, resources, id), delivery: "queue", metadata: { repartoAviso: true } });
+          log.info("permiso avisado", { id: e.id, hija: e.hija, padre: e.padre, requestID: id });
+        } catch (error) {
+          log.error("aviso de permiso falló", { id: e.id, hija: e.hija, padre: e.padre, requestID: id, error: String(error) });
+        }
+      })();
+      return;
+    }
+    if (ev.type === "permission.replied" && data?.requestID && data.sessionID) {
+      const { requestID, sessionID } = data;
+      actividad();
+      write(db(), "permiso respondido", () => db().query("UPDATE permisos SET estado = 'respondido' WHERE request_id = $id AND hija = $hija")
+        .run({ id: requestID, hija: sessionID }));
+      return;
+    }
+    if (/^session\.(step|tool|text|reasoning)\./.test(ev.type)) actividad();
+
+    function actividad() {
       abierto.actividad = Date.now();
       if (abierto.estancado) {
         const e = leer(abierto.id);
@@ -467,7 +508,7 @@ export function encargos(ctx: Ctx, config: Config) {
   async function vigilar() {
     const ahora = Date.now();
     for (const [hija, abierto] of abiertos()) {
-      if (abierto.estancado || ahora - abierto.actividad < PLAZO_ESTANCADO) continue;
+      if (abierto.estancado || ahora - abierto.actividad < PLAZO_ESTANCADO || permisoPendiente(hija)) continue;
       const e = leer(abierto.id);
       if (e?.estado !== "corriendo" || !transicion(e, "estancado")) continue;
       abierto.estancado = true;

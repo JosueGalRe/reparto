@@ -50,6 +50,13 @@ CREATE TABLE IF NOT EXISTS bitacora (
   hora INTEGER NOT NULL,
   PRIMARY KEY (hija, mensaje, llamada)
 );
+CREATE TABLE IF NOT EXISTS permisos (
+  request_id TEXT PRIMARY KEY,
+  hija TEXT NOT NULL,
+  action TEXT NOT NULL,
+  resources TEXT NOT NULL,
+  estado TEXT NOT NULL CHECK (estado IN ('pendiente', 'respondido'))
+);
 `;
 
 export function openDb(path: string): Database {

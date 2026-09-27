@@ -17,6 +17,7 @@ Call `delegar({ a, prompt, background?, sesion?, skills? })`:
 - `skills` loads skills into the child's first message.
 - `bitacora({ id })` shows what an encargo did (its tool calls and final message); add `detalle: "completo"` for the results.
 - `interrumpir({ id })` interrupts one of your own open encargos, for example one reported as stale. You can only interrupt encargos this session launched.
+- If a child asks for permission, relay the notice to Bryan with your recommendation; Bryan opens that child in chats and approves or rejects there. Never try to approve it yourself.
 
 Agents you can call by name:
 
