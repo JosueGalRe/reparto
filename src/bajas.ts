@@ -34,7 +34,9 @@ export const bajasVigentes = (db: Database, ahora = Date.now()): Baja[] =>
 
 export const deBaja = (bajas: readonly Baja[]) => (actor: Actor) =>
   bajas.some(
-    (b) => (b.tipo === 'proveedor' && b.id === actor.model.split('/')[0]) || (b.tipo === 'actor' && b.id === etiqueta(actor)),
+    (baja) =>
+      (baja.tipo === 'proveedor' && baja.id === actor.model.split('/')[0]) ||
+      (baja.tipo === 'actor' && baja.id === etiqueta(actor)),
   )
 
 // ---------- Clasificador (S3) ----------
@@ -58,7 +60,9 @@ export type Clase =
  * error de las `primary`, y cada error nuevo reemplaza al anterior.
  */
 export function guardarError(errores: Map<string, ErrorCrudo>, sessionID: string, kind: string, crudo: ErrorCrudo) {
-  if (kind === 'primary') {errores.set(sessionID, crudo)}
+  if (kind === 'primary') {
+    errores.set(sessionID, crudo)
+  }
 }
 
 /** El `retry` consume el error guardado; un cuerpo de otro actor (anterior a un cambio) no cuenta. */
@@ -70,27 +74,47 @@ export function tomarError(errores: Map<string, ErrorCrudo>, sessionID: string, 
   return crudo?.actor === actor ? crudo : undefined
 }
 
-const json = (texto: string): Record<string, any> | undefined => {
+const json = (
+  texto: string,
+):
+  | { error?: { code?: string; resets_at?: unknown; resets_in_seconds?: unknown }; headers?: Record<string, unknown> }
+  | undefined => {
   try {
-    const x = JSON.parse(texto)
+    const entrada = JSON.parse(texto)
 
-    return x && typeof x === 'object' ? x : undefined
+    return entrada && typeof entrada === 'object' ? entrada : undefined
   } catch {
     return undefined
   }
 }
 
-const numero = (x: unknown) =>
-  typeof x === 'number' ? x : (typeof x === 'string' && x.trim() && Number.isFinite(Number(x)) ? Number(x) : undefined)
+const numero = (entrada: unknown) => {
+  if (typeof entrada === 'number') {
+    return entrada
+  }
+
+  if (typeof entrada === 'string' && entrada.trim() && Number.isFinite(Number(entrada))) {
+    return Number(entrada)
+  }
+
+  return undefined
+}
 
 /** Segundos o ms epoch, o una fecha ISO. */
-const instante = (x: unknown): number | undefined => {
-  const n = numero(x)
+const instante = (entrada: unknown): number | undefined => {
+  const numeroValor = numero(entrada)
 
-  if (n !== undefined) {return n > 0 ? (n < 1e12 ? n * 1000 : n) : undefined}
-  const d = typeof x === 'string' ? Date.parse(x) : NaN
+  if (numeroValor !== undefined) {
+    if (numeroValor <= 0) {
+      return undefined
+    }
 
-  return Number.isFinite(d) ? d : undefined
+    return numeroValor < 1e12 ? numeroValor * 1000 : numeroValor
+  }
+
+  const fechaValor = typeof entrada === 'string' ? Date.parse(entrada) : NaN
+
+  return Number.isFinite(fechaValor) ? fechaValor : undefined
 }
 
 /** Reset informado por el proveedor: el cuerpo (`resets_at` en OpenAI y `claude-code`) y después los headers. */
@@ -98,21 +122,21 @@ export function reset(crudo: ErrorCrudo, ahora = Date.now()): number | undefined
   const cuerpo = json(crudo.cuerpo)
   const error = cuerpo?.error ?? {}
   // El frame de error de OpenAI trae sus headers adentro (S3)
-  const h = Object.fromEntries(
-    Object.entries({ ...crudo.headers, ...cuerpo?.headers }).map(([k, v]) => [k.toLowerCase(), String(v)]),
+  const headers = Object.fromEntries(
+    Object.entries({ ...crudo.headers, ...cuerpo?.headers }).map(([clave, valor]) => [clave.toLowerCase(), String(valor)]),
   )
-  const relativo = (x: unknown) => {
-    const n = numero(x)
+  const relativo = (entrada: unknown) => {
+    const numeroValor = numero(entrada)
 
-    return n !== undefined ? ahora + n * 1000 : undefined
+    return numeroValor !== undefined ? ahora + numeroValor * 1000 : undefined
   }
 
   return (
     instante(error.resets_at) ??
     relativo(error.resets_in_seconds) ??
-    instante(h['x-codex-primary-reset-at']) ??
-    instante(h['x-claude-rate-limit-reset']) ??
-    relativo(h['retry-after'])
+    instante(headers['x-codex-primary-reset-at']) ??
+    instante(headers['x-claude-rate-limit-reset']) ??
+    relativo(headers['retry-after'])
   )
 }
 
@@ -124,17 +148,24 @@ export function clasificar(error: { type: string }, crudo: ErrorCrudo | undefine
     case 'provider.quota': {
       return { tipo: 'cuota', hasta: crudo && reset(crudo, ahora) }
     }
+
     case 'provider.rate-limit': {
-      // el límite de suscripción de claude-code llega como velocidad y V2 lo reintentaría cada 15 min (S3)
-      if (cuerpo?.error?.code === 'claude_session_limit') return { tipo: 'cuota', hasta: reset(crudo!, ahora) }
+      // El límite de suscripción de claude-code llega como velocidad y V2 lo reintentaría cada 15 min (S3)
+      if (cuerpo?.error?.code === 'claude_session_limit') {
+        return { tipo: 'cuota', hasta: reset(crudo!, ahora) }
+      }
+
       return { tipo: 'velocidad' }
     }
+
     case 'provider.internal': {
       return { tipo: 'interno' }
     }
+
     case 'provider.auth': {
       return { tipo: 'auth' }
     }
+
     default: {
       return { tipo: 'otro' }
     }
@@ -144,91 +175,100 @@ export function clasificar(error: { type: string }, crudo: ErrorCrudo | undefine
 // ---------- Suplencias: el cambio de actor dentro del hook `retry` (S8) ----------
 
 /** `provider/model#variant` de un Model.Ref, con `default` cuando V2 no reporta variant. */
-export const claveModelo = (m: { providerID: string; id: string; variant?: string }) =>
-  `${m.providerID}/${m.id}#${m.variant ?? 'default'}`
+export const claveModelo = (modelo: { providerID: string; id: string; variant?: string }) =>
+  `${modelo.providerID}/${modelo.id}#${modelo.variant ?? 'default'}`
 
 const PLAZO_BAJA = '5h'
 const FALLOS_INTERNOS = 3
 
+const errores = () => (proceso.errores ??= new Map())
+const fallos = () => (proceso.fallos ??= new Map())
+
+function guardar(
+  sessionID: string,
+  kind: string,
+  model: { providerID: string; id: string; variant?: string },
+  cuerpo: string,
+  headers: Record<string, string>,
+) {
+  guardarError(errores(), sessionID, kind, { actor: claveModelo(model), cuerpo, headers })
+}
+
 export function suplencias(ctx: Plugin.Context, config: Config) {
-  const errores = () => (proceso.errores ??= new Map())
-  const fallos = () => (proceso.fallos ??= new Map())
-
-  function guardar(
-    sessionID: string,
-    kind: string,
-    model: { providerID: string; id: string; variant?: string },
-    cuerpo: string,
-    headers: Record<string, string>,
-  ) {
-    guardarError(errores(), sessionID, kind, { actor: claveModelo(model), cuerpo, headers })
-  }
-
-  async function retry(r: SessionRetry) {
+  async function retry(reintento: SessionRetry) {
     const actual = {
-      providerID: String(r.model.providerID),
-      id: String(r.model.id),
-      variant: r.model.variant && String(r.model.variant),
+      providerID: String(reintento.model.providerID),
+      id: String(reintento.model.id),
+      variant: reintento.model.variant && String(reintento.model.variant),
     }
-    const clase = clasificar(r.error, tomarError(errores(), r.sessionID, claveModelo(actual)))
+    const clase = clasificar(reintento.error, tomarError(errores(), reintento.sessionID, claveModelo(actual)))
 
     log.info('retry', {
-      sessionID: r.sessionID,
-      agent: r.agent,
+      sessionID: reintento.sessionID,
+      agent: reintento.agent,
       actor: claveModelo(actual),
-      attempt: r.attempt,
-      error: r.error.type,
+      attempt: reintento.attempt,
+      error: reintento.error.type,
       clase,
-      decisionV2: r.decision,
+      decisionV2: reintento.decision,
     })
 
-    if (clase.tipo === 'velocidad' || clase.tipo === 'otro') {return} // El reintento nativo ya respeta retry-after
+    if (clase.tipo === 'velocidad' || clase.tipo === 'otro') {
+      return
+    } // El reintento nativo ya respeta retry-after
 
     if (clase.tipo === 'interno') {
       // `attempt` es el número del próximo intento de la ejecución, no de fallos del actor (S3): se cuentan acá
-      const previo = fallos().get(r.sessionID)
-      const n = previo?.actor === claveModelo(actual) ? previo.n + 1 : 1
+      const previo = fallos().get(reintento.sessionID)
+      const intentos = previo?.actor === claveModelo(actual) ? previo.n + 1 : 1
 
-      fallos().set(r.sessionID, { actor: claveModelo(actual), n })
+      fallos().set(reintento.sessionID, { actor: claveModelo(actual), n: intentos })
 
-      if (n < (config.fallosInternos ?? FALLOS_INTERNOS)) {return}
+      if (intentos < (config.fallosInternos ?? FALLOS_INTERNOS)) {
+        return
+      }
     }
 
     if (clase.tipo === 'cuota') {
       const proveedor = actual.providerID
       const hasta = clase.hasta ?? Date.now() + plazoMs(config.proveedores?.[proveedor]?.plazoBaja ?? PLAZO_BAJA)
 
-      registrarBaja(db(), { tipo: 'proveedor', id: proveedor, motivo: `cuota: ${r.error.message}`, hasta })
+      registrarBaja(db(), { tipo: 'proveedor', id: proveedor, motivo: `cuota: ${reintento.error.message}`, hasta })
       log.warn('baja', {
         proveedor,
         hasta: new Date(hasta).toISOString(),
         reset: clase.hasta !== undefined,
-        sessionID: r.sessionID,
+        sessionID: reintento.sessionID,
       })
     }
 
     const validacion = proceso.validacion
-    const agente = String(r.agent)
+    const agente = String(reintento.agent)
 
-    if (!validacion?.actores.has(agente)) {return} // Sesión sin reparto: queda la decisión de V2
+    if (!validacion?.actores.has(agente)) {
+      return
+    } // Sesión sin reparto: queda la decisión de V2
 
     const suplente = siguiente(validacion, agente, actual, deBaja(bajasVigentes(db())))
 
     if (!suplente) {
-      r.decision = { retry: false }
-      log.warn('sin suplente', { sessionID: r.sessionID, agente, actor: claveModelo(actual), clase: clase.tipo })
+      reintento.decision = { retry: false }
+      log.warn('sin suplente', { sessionID: reintento.sessionID, agente, actor: claveModelo(actual), clase: clase.tipo })
 
       return
     }
 
-    await ctx.session.switchModel({ sessionID: r.sessionID, model: modelRef(suplente) })
-    r.decision = { retry: true, delay: 0 }
-    errores().delete(r.sessionID)
-    fallos().delete(r.sessionID)
-    const encargo = abiertos().get(r.sessionID)
+    await ctx.session.switchModel({ sessionID: reintento.sessionID, model: modelRef(suplente) })
+    reintento.decision = { retry: true, delay: 0 }
+    errores().delete(reintento.sessionID)
+    fallos().delete(reintento.sessionID)
+    const encargo = abiertos().get(reintento.sessionID)
     const proveedor = suplente.model.split('/')[0]!
 
-    if (encargo) {moverCupo(encargo.id, proveedor, config.proveedores?.[proveedor]?.concurrencia ?? 3)}
+    if (encargo) {
+      moverCupo(encargo.id, proveedor, config.proveedores?.[proveedor]?.concurrencia ?? 3)
+    }
+
     const motivo = {
       cuota: 'cuota agotada',
       interno: `${config.fallosInternos ?? FALLOS_INTERNOS} fallos seguidos del proveedor`,
@@ -238,7 +278,7 @@ export function suplencias(ctx: Plugin.Context, config: Config) {
     // La sesión ya muestra el cambio (marca model-switched de V2). No se le inyecta un mensaje: un `synthetic` que
     // Llega después de la respuesta abre un paso más, y en un encargo esa respuesta pisaba el mensaje final.
     log.info('suplente', {
-      sessionID: r.sessionID,
+      sessionID: reintento.sessionID,
       agente,
       de: claveModelo(actual),
       a: etiqueta(suplente),

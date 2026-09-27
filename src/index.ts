@@ -25,7 +25,10 @@ const hijos = new Set(['utilero', 'archivista', 'oracle', 'critico', ...papeles]
 export async function imponerHija(ctx: Plugin.Context, sessionID: string) {
   const sesion = await ctx.session.get({ sessionID })
 
-  if (!sesion.parentID || !hijos.has(sesion.agent ?? '')) {return false}
+  if (!sesion.parentID || !hijos.has(sesion.agent ?? '')) {
+    return false
+  }
+
   hijosNativos().set(sessionID, { padre: sesion.parentID, actividad: Date.now(), avisado: false, permiso: false })
   const agente = sesion.agent ?? ''
   const actor = proceso.validacion && resolver(proceso.validacion, agente, deBaja(bajasVigentes(db())))
@@ -64,7 +67,9 @@ export default Plugin.define({
       log.info('activo', { location: ctx.location.directory, config: path, version: ctx.app.version, modulo })
       const bajas = bajasVigentes(db())
 
-      if (bajas.length) {log.info('bajas vigentes', { location: ctx.location.directory, bajas })}
+      if (bajas.length) {
+        log.info('bajas vigentes', { location: ctx.location.directory, bajas })
+      }
 
       // El transform ve el catálogo completo, sin importar el orden de `plugins`, y se repite en cada
       // Model.updated (S9). El callback es sincrónico: guarda el catálogo y la validación corre fuera.
@@ -73,7 +78,8 @@ export default Plugin.define({
 
         setTimeout(async () => {
           try {
-            const agentes = (await ctx.agent.list()).data.map((agent) => String(agent.id))
+            const listado = await ctx.agent.list()
+            const agentes = listado.data.map((agent) => String(agent.id))
 
             publicar(validar(config, catalog, agentes))
           } catch (error) {
@@ -90,7 +96,7 @@ export default Plugin.define({
           execute: estreno(ctx),
         }),
       )
-      const c = continuacion(ctx)
+      const continuar = continuacion(ctx)
 
       // Sesiones primarias: el actor resuelto se impone en el primer turno y en el primer turno después de que
       // Empiece o termine una baja que lo cambie. El resto del tiempo se respeta el modelo de la sesión, así que un
@@ -98,19 +104,34 @@ export default Plugin.define({
       // Como primer turno.
       await ctx.session.hook('prompt', async (input) => {
         try {
-          if (input.metadata?.repartoAviso === true) {return}
-          if (await imponerHija(ctx, input.sessionID)) {return}
+          if (input.metadata?.repartoAviso === true) {
+            return
+          }
+
+          if (await imponerHija(ctx, input.sessionID)) {
+            return
+          }
+
           const sesion = await ctx.session.get({ sessionID: input.sessionID })
           const agente = sesion.agent ?? 'director'
 
-          if (!primarios.has(agente)) {return}
+          if (!primarios.has(agente)) {
+            return
+          }
+
           const clave = `impuesto/${input.sessionID}/${agente}`
           const actor = proceso.validacion && resolver(proceso.validacion, agente, deBaja(bajasVigentes(db())))
 
-          if (!actor) {return log.warn('sin actor para imponer', { sessionID: input.sessionID, agente })}
+          if (!actor) {
+            return log.warn('sin actor para imponer', { sessionID: input.sessionID, agente })
+          }
+
           const previo = (await ctx.storage.get(clave)) as { actor?: string } | undefined
 
-          if (previo?.actor === etiqueta(actor)) {return}
+          if (previo?.actor === etiqueta(actor)) {
+            return
+          }
+
           await ctx.session.switchModel({ sessionID: input.sessionID, model: modelRef(actor) })
           await ctx.storage.set(clave, { actor: etiqueta(actor) })
           log.info('actor impuesto', {
@@ -124,26 +145,35 @@ export default Plugin.define({
           log.error('hook prompt falló', { sessionID: input.sessionID, error: String(error) })
         }
       })
-      await ctx.session.hook('prompt', (input) => c.prompt(input))
+      await ctx.session.hook('prompt', (input) => continuar.prompt(input))
 
       await ctx.session.hook('context', (input) => {
-        if (debug)
-          {log.info('debug: tools de la request', {
+        if (debug) {
+          log.info('debug: tools de la request', {
             sessionID: input.sessionID,
             agent: input.agent,
-            tools: Object.keys(input.tools).sort(),
-          })}
-        if (input.agent === 'director' || input.agent === 'regidor')
-          {input.system.push({ type: 'text', text: ruteo(proceso.validacion) })}
+            tools: Object.keys(input.tools).toSorted(),
+          })
+        }
+
+        if (input.agent === 'director' || input.agent === 'regidor') {
+          input.system.push({ type: 'text', text: ruteo(proceso.validacion) })
+        }
       })
 
       // Solo corre cuando las reglas ya dieron allow (S7): sirve para negar, no para permitir.
       await ctx.permission.hook('evaluate', (input) => {
-        if (input.action !== 'shell' || input.effect !== 'allow' || !conShellDeLectura.has(String(input.agent))) {return}
+        if (input.action !== 'shell' || input.effect !== 'allow' || !conShellDeLectura.has(String(input.agent))) {
+          return
+        }
+
         for (const tramo of input.resources) {
           const motivo = motivoNegado(tramo)
 
-          if (!motivo) {continue}
+          if (!motivo) {
+            continue
+          }
+
           input.effect = 'deny'
           input.message = `reparto: ${motivo} negada en el shell de solo lectura. Para cambiar archivos, delega.`
           log.info('shell negado', { sessionID: input.sessionID, agent: input.agent, tramo, motivo })
@@ -152,43 +182,58 @@ export default Plugin.define({
         }
       })
 
-      if (debug)
-        {await ctx.session.hook('model.request', (input) => {
+      if (debug) {
+        await ctx.session.hook('model.request', (input) => {
           log.info('debug: model.request', {
             sessionID: input.sessionID,
             agent: input.agent,
             kind: input.kind,
             model: input.model,
           })
-        })}
+        })
+      }
 
-      const s = suplencias(ctx, config)
+      const suplente = suplencias(ctx, config)
 
       // El cuerpo del error corrige la clasificación de V2 y trae el reset (S3). Solo requests `primary`.
-      await ctx.session.hook('http.response', async (x) => {
-        if (x.kind !== 'primary' || x.response.ok) {return}
-        const cuerpo = await x.response
+      await ctx.session.hook('http.response', async (respuesta) => {
+        if (respuesta.kind !== 'primary' || respuesta.response.ok) {
+          return
+        }
+
+        const cuerpo = await respuesta.response
           .clone()
           .text()
           .catch(() => '')
 
-        s.guardar(x.sessionID, x.kind, x.model, cuerpo, Object.fromEntries(x.response.headers))
+        suplente.guardar(
+          respuesta.sessionID,
+          respuesta.kind,
+          respuesta.model,
+          cuerpo,
+          Object.fromEntries(respuesta.response.headers),
+        )
       })
       // Openai va por WebSocket: su error llega como un frame (S3). Hook experimental: si cambia, la baja cae en plazoBaja.
-      await ctx.session.hook('experimental.ws.receive', (x) => {
-        if (x.kind !== 'primary' || !x.frame.includes('"error"')) {return}
-        if (x.frame.startsWith('{"type":"error"')) {s.guardar(x.sessionID, x.kind, x.model, x.frame, {})}
+      await ctx.session.hook('experimental.ws.receive', (mensaje) => {
+        if (mensaje.kind !== 'primary' || !mensaje.frame.includes('"error"')) {
+          return
+        }
+
+        if (mensaje.frame.startsWith('{"type":"error"')) {
+          suplente.guardar(mensaje.sessionID, mensaje.kind, mensaje.model, mensaje.frame, {})
+        }
       })
-      await ctx.session.hook('retry', async (r) => {
+      await ctx.session.hook('retry', async (reintento) => {
         try {
-          await s.retry(r)
+          await suplente.retry(reintento)
         } catch (error) {
-          log.error('hook retry falló', { sessionID: r.sessionID, error: String(error) })
+          log.error('hook retry falló', { sessionID: reintento.sessionID, error: String(error) })
         }
       })
 
-      const e = encargos(ctx, config)
-      const ensayar = ensayo(ctx, e)
+      const gestor = encargos(ctx, config)
+      const ensayar = ensayo(ctx, gestor)
 
       // Codemode: false, o el modelo solo las alcanza desde `execute` (S11)
       await ctx.tool.transform((editor) => {
@@ -218,7 +263,7 @@ export default Plugin.define({
             additionalProperties: false,
           },
           options: { codemode: false },
-          execute: (input, tool) => e.delegar(input, tool),
+          execute: (input, tool) => gestor.delegar(input, tool),
         })
         editor.add({
           name: 'bitacora',
@@ -234,7 +279,7 @@ export default Plugin.define({
             additionalProperties: false,
           },
           options: { codemode: false },
-          execute: (input) => e.bitacora(input),
+          execute: (input) => gestor.bitacora(input),
         })
         editor.add({
           name: 'ensayar',
@@ -248,8 +293,10 @@ export default Plugin.define({
           },
           options: { codemode: false },
           execute: (input, tool) => {
-            if (!input || typeof input !== 'object' || !('plan' in input) || typeof input.plan !== 'string')
-              {throw new Error('ensayar: falta plan')}
+            if (!input || typeof input !== 'object' || !('plan' in input) || typeof input.plan !== 'string') {
+              throw new Error('ensayar: falta plan')
+            }
+
             return ensayar({ plan: input.plan }, tool)
           },
         })
@@ -265,7 +312,7 @@ export default Plugin.define({
             additionalProperties: false,
           },
           options: { codemode: false },
-          execute: (input, tool) => e.interrumpir(input, tool),
+          execute: (input, tool) => gestor.interrumpir(input, tool),
         })
         editor.add({
           name: 'pendientes',
@@ -297,19 +344,24 @@ export default Plugin.define({
             if (items && ref) {
               const original = leerPendientes(db(), clave)
 
-              if (items.length !== original.length || items.some((item, i) => item.texto !== original[i]?.texto))
-                {throw new Error('pendientes: las tareas estrenadas no se pueden agregar, borrar ni renombrar')}
+              if (items.length !== original.length || items.some((item, indice) => item.texto !== original[indice]?.texto)) {
+                throw new Error('pendientes: las tareas estrenadas no se pueden agregar, borrar ni renombrar')
+              }
             }
 
-            if (items && !escribirPendientes(db(), clave, items))
-              {throw new Error('pendientes: no se pudo guardar (SQLite); ver el log de reparto')}
+            if (items && !escribirPendientes(db(), clave, items)) {
+              throw new Error('pendientes: no se pudo guardar (SQLite); ver el log de reparto')
+            }
+
             return { content: formatear(items ?? leerPendientes(db(), clave)) }
           },
         })
       })
       // Session.context pierde las tool calls al compactar (S14): la bitácora se llena acá
-      await ctx.tool.hook('execute.after', (x) =>
-        e.registrarLlamada(x.status === 'completed' ? { ...x, result: x.result } : { ...x, error: x.error }),
+      await ctx.tool.hook('execute.after', (llamada) =>
+        gestor.registrarLlamada(
+          llamada.status === 'completed' ? { ...llamada, result: llamada.result } : { ...llamada, error: llamada.error },
+        ),
       )
 
       const stop = new AbortController()
@@ -317,19 +369,20 @@ export default Plugin.define({
       void (async () => {
         try {
           for await (const ev of ctx.event.subscribe({ signal: stop.signal })) {
-            e.evento(ev)
-            void c.evento(ev)
+            gestor.evento(ev)
+            void continuar.evento(ev)
           }
         } catch (error) {
-          if (!stop.signal.aborted)
-            {log.error('suscripción a eventos terminó', { location: ctx.location.directory, error: String(error) })}
+          if (!stop.signal.aborted) {
+            log.error('suscripción a eventos terminó', { location: ctx.location.directory, error: String(error) })
+          }
         }
       })()
 
-      const vigilante = setInterval(() => void e.vigilar(), 60_000)
+      const vigilante = setInterval(() => void gestor.vigilar(), 60_000)
 
       // Sin esperarla, para no bloquear el arranque
-      void e.reconciliar()
+      void gestor.reconciliar()
 
       return () => {
         stop.abort()

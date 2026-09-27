@@ -40,7 +40,10 @@ export function configPath(options: Readonly<Record<string, unknown>>): string {
 export async function loadConfig(path: string): Promise<{ config: Config } | { error: string }> {
   const file = Bun.file(path)
 
-  if (!(await file.exists())) {return { error: `no existe ${path}` }}
+  if (!(await file.exists())) {
+    return { error: `no existe ${path}` }
+  }
+
   let data: unknown
 
   try {
@@ -51,7 +54,10 @@ export async function loadConfig(path: string): Promise<{ config: Config } | { e
 
   const errors = validate(data, schema as JsonSchema, '')
 
-  if (errors.length) {return { error: `${path} no cumple el schema: ${errors.join('; ')}` }}
+  if (errors.length) {
+    return { error: `${path} no cumple el schema: ${errors.join('; ')}` }
+  }
+
   return { config: data as Config }
 }
 
@@ -81,7 +87,10 @@ export function validate(value: unknown, node: JsonSchema, path: string): string
 
   switch (node.type) {
     case 'object': {
-      if (typeof value !== 'object' || value === null || Array.isArray(value)) {return [`${at}: se esperaba un objeto`]}
+      if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+        return [`${at}: se esperaba un objeto`]
+      }
+
       const record = value as Record<string, unknown>
       const errors = (node.required ?? []).filter((key) => !(key in record)).map((key) => `${at}: falta "${key}"`)
 
@@ -89,26 +98,49 @@ export function validate(value: unknown, node: JsonSchema, path: string): string
         const sub = node.properties?.[key] ?? node.additionalProperties
         const childPath = path ? `${path}.${key}` : key
 
-        if (sub === false || sub === undefined) {errors.push(`${childPath}: clave desconocida`)}
-        else if (sub && sub !== true) {errors.push(...validate(child, sub, childPath))}
+        if (sub === false || sub === undefined) {
+          errors.push(`${childPath}: clave desconocida`)
+        } else if (sub && sub !== true) {
+          errors.push(...validate(child, sub, childPath))
+        }
       }
 
       return errors
     }
 
     case 'array': {
-      if (!Array.isArray(value)) return [`${at}: se esperaba una lista`]
-      return node.items ? value.flatMap((item, i) => validate(item, node.items!, `${path}[${i}]`)) : []
+      if (!Array.isArray(value)) {
+        return [`${at}: se esperaba una lista`]
+      }
+
+      return node.items ? value.flatMap((item, indice) => validate(item, node.items!, `${path}[${indice}]`)) : []
     }
+
     case 'string': {
-      if (typeof value !== 'string') return [`${at}: se esperaba un texto`]
-      if (node.minLength !== undefined && value.length < node.minLength) return [`${at}: vacío`]
-      if (node.pattern && !new RegExp(node.pattern).test(value)) return [`${at}: "${value}" no cumple ${node.pattern}`]
+      if (typeof value !== 'string') {
+        return [`${at}: se esperaba un texto`]
+      }
+
+      if (node.minLength !== undefined && value.length < node.minLength) {
+        return [`${at}: vacío`]
+      }
+
+      if (node.pattern && !new RegExp(node.pattern).test(value)) {
+        return [`${at}: "${value}" no cumple ${node.pattern}`]
+      }
+
       return []
     }
+
     case 'integer': {
-      if (!Number.isInteger(value)) return [`${at}: se esperaba un entero`]
-      if (node.minimum !== undefined && (value as number) < node.minimum) return [`${at}: menor que ${node.minimum}`]
+      if (!Number.isInteger(value)) {
+        return [`${at}: se esperaba un entero`]
+      }
+
+      if (node.minimum !== undefined && (value as number) < node.minimum) {
+        return [`${at}: menor que ${node.minimum}`]
+      }
+
       return []
     }
   }

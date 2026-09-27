@@ -48,43 +48,55 @@ export function parsearVeredicto(texto: string): Veredicto {
   const lineas = texto
     .trim()
     .split(/\r?\n/)
-    .map((l) => l.trim())
+    .map((linea) => linea.trim())
     .filter(Boolean)
-  const cabecera = lineas.find((l) => l.startsWith('VEREDICTO:'))
+  const cabecera = lineas.find((linea) => linea.startsWith('VEREDICTO:'))
 
-  if (cabecera !== 'VEREDICTO: APROBADO' && cabecera !== 'VEREDICTO: OBJECIONES')
-    {throw new Error('veredicto inválido: falta VEREDICTO: APROBADO | OBJECIONES')}
+  if (cabecera !== 'VEREDICTO: APROBADO' && cabecera !== 'VEREDICTO: OBJECIONES') {
+    throw new Error('veredicto inválido: falta VEREDICTO: APROBADO | OBJECIONES')
+  }
+
   const objeciones: Objecion[] = []
   const notas: string[] = []
   const cierres: Record<number, 'cerrado' | 'abierto'> = {}
 
   for (const linea of lineas) {
     if (linea.startsWith('OBJECION')) {
-      if (!linea.startsWith('OBJECION:')) {throw new Error(`veredicto inválido: ${linea}`)}
+      if (!linea.startsWith('OBJECION:')) {
+        throw new Error(`veredicto inválido: ${linea}`)
+      }
+
       const campos = linea
         .slice(9)
         .split('|')
-        .map((s) => s.trim())
+        .map((campo) => campo.trim())
 
-      if (campos.length < 4 || campos.length > 5 || campos.slice(0, 4).some((s) => !s)) {
+      if (campos.length < 4 || campos.length > 5 || campos.slice(0, 4).some((campo) => !campo)) {
         throw new Error(`veredicto inválido: ${linea}`)
       }
 
       const [seccion, defecto, causa, cierre, justificacion] = campos
 
-      if (seccion && defecto && causa && cierre)
-        {objeciones.push({ seccion, defecto, causa, cierre, ...(justificacion ? { justificacion } : {}) })}
-    } else if (linea.startsWith('NOTA:')) {notas.push(linea.slice(5).trim())}
-    else if (linea.startsWith('ACTA')) {
+      if (seccion && defecto && causa && cierre) {
+        objeciones.push({ seccion, defecto, causa, cierre, ...(justificacion ? { justificacion } : {}) })
+      }
+    } else if (linea.startsWith('NOTA:')) {
+      notas.push(linea.slice(5).trim())
+    } else if (linea.startsWith('ACTA')) {
       const match = /^ACTA:\s*(\d+)\s*\|\s*(cerrado|abierto)$/.exec(linea)
 
-      if (match) {cierres[Number(match[1])] = match[2] === 'cerrado' ? 'cerrado' : 'abierto'}
-      else {throw new Error(`veredicto inválido: ${linea}`)}
+      if (match) {
+        cierres[Number(match[1])] = match[2] === 'cerrado' ? 'cerrado' : 'abierto'
+      } else {
+        throw new Error(`veredicto inválido: ${linea}`)
+      }
     }
   }
 
-  if (cabecera === 'VEREDICTO: OBJECIONES' && !objeciones.length)
-    {throw new Error('veredicto inválido: OBJECIONES sin objeción válida')}
+  if (cabecera === 'VEREDICTO: OBJECIONES' && !objeciones.length) {
+    throw new Error('veredicto inválido: OBJECIONES sin objeción válida')
+  }
+
   return { veredicto: cabecera === 'VEREDICTO: APROBADO' ? 'APROBADO' : 'OBJECIONES', objeciones, notas, cierres }
 }
 
@@ -95,8 +107,8 @@ export function elegirRevisores(
   dramaturgo: string | undefined,
   fuera: (actor: Actor) => boolean,
 ): { critico: Actor; oracle: Actor; repetidos: boolean } | undefined {
-  const criticos = (validacion.actores.get('critico') ?? []).filter((a) => !fuera(a))
-  const oracles = (validacion.actores.get('oracle') ?? []).filter((a) => !fuera(a))
+  const criticos = (validacion.actores.get('critico') ?? []).filter((actor) => !fuera(actor))
+  const oracles = (validacion.actores.get('oracle') ?? []).filter((actor) => !fuera(actor))
   const pares = criticos.flatMap((critico) => oracles.map((oracle) => ({ critico, oracle })))
   const distinto = pares.find(
     ({ critico, oracle }) =>
@@ -118,24 +130,32 @@ export function actualizarActa(
     VALUES ($plan, $id, $objecion, $causa, $condicion_cierre, $ronda_entrada, 'abierto')`)
   let id = (previo.at(-1)?.id ?? 0) + 1
 
-  for (const v of revisiones)
-    {for (const o of v.objeciones) {
-      if (ronda > 1 && !o.justificacion) continue
-      // ponytail: no automatic duplicate merging; the dramaturgo can reconcile duplicates after reviewing the acta.
+  for (const revision of revisiones) {
+    for (const objecion of revision.objeciones) {
+      if (ronda > 1 && !objecion.justificacion) {
+        continue
+      }
+
+      // Ponytail: no automatic duplicate merging; the dramaturgo can reconcile duplicates after reviewing the acta.
       alta.run({
         plan,
         id: id++,
-        objecion: `${o.seccion}: ${o.defecto}`,
-        causa: o.causa,
-        condicion_cierre: o.cierre,
+        objecion: `${objecion.seccion}: ${objecion.defecto}`,
+        causa: objecion.causa,
+        condicion_cierre: objecion.cierre,
         ronda_entrada: ronda,
       })
-    }}
-  if (ronda > 1)
-    {for (const entrada of previo) {
-      const estado = revisiones.every((v) => v.cierres[entrada.id] === 'cerrado') ? 'cerrado' : 'abierto'
+    }
+  }
+
+  if (ronda > 1) {
+    for (const entrada of previo) {
+      const estado = revisiones.every((revision) => revision.cierres[entrada.id] === 'cerrado') ? 'cerrado' : 'abierto'
+
       database.query('UPDATE acta SET estado = $estado WHERE plan = $plan AND id = $id').run({ estado, plan, id: entrada.id })
-    }}
+    }
+  }
+
   return database.query('SELECT * FROM acta WHERE plan = $plan ORDER BY id').all({ plan }) as EntradaActa[]
 }
 
@@ -144,66 +164,98 @@ export function cerrado(revisiones: readonly Veredicto[], acta: readonly Entrada
     revisiones.length === 2 &&
     hashes.length === 2 &&
     hashes[0] === hashes[1] &&
-    revisiones.every((v) => v.veredicto === 'APROBADO' && v.objeciones.length === 0) &&
-    acta.every((a) => a.estado === 'cerrado')
+    revisiones.every((revision) => revision.veredicto === 'APROBADO' && revision.objeciones.length === 0) &&
+    acta.every((entrada) => entrada.estado === 'cerrado')
   )
 }
 
-export function admitir(v: Veredicto, ronda: number, acta: readonly EntradaActa[]): Veredicto {
-  const aceptadas = ronda === 1 ? v.objeciones : v.objeciones.filter((o) => !!o.justificacion)
+export function admitir(veredicto: Veredicto, ronda: number, acta: readonly EntradaActa[]): Veredicto {
+  const aceptadas = ronda === 1 ? veredicto.objeciones : veredicto.objeciones.filter((objecion) => !!objecion.justificacion)
 
   return {
-    ...v,
+    ...veredicto,
     notas: [
-      ...v.notas,
-      ...(ronda > 1 ? v.objeciones.filter((o) => !o.justificacion).map((o) => `${o.seccion}: ${o.defecto}`) : []),
+      ...veredicto.notas,
+      ...(ronda > 1
+        ? veredicto.objeciones
+            .filter((objecion) => !objecion.justificacion)
+            .map((objecion) => `${objecion.seccion}: ${objecion.defecto}`)
+        : []),
     ],
     objeciones: aceptadas,
-    veredicto: aceptadas.length || (ronda > 1 && acta.some((a) => v.cierres[a.id] !== 'cerrado')) ? 'OBJECIONES' : 'APROBADO',
+    veredicto:
+      aceptadas.length || (ronda > 1 && acta.some((entrada) => veredicto.cierres[entrada.id] !== 'cerrado'))
+        ? 'OBJECIONES'
+        : 'APROBADO',
   }
 }
 
 function diferencia(anterior: string, actual: string): string {
-  const a = anterior.split('\n')
-  const b = actual.split('\n')
+  const lineasAnteriores = anterior.split('\n')
+  const lineasActuales = actual.split('\n')
   let inicio = 0
 
-  while (inicio < Math.min(a.length, b.length) && a[inicio] === b[inicio]) {inicio++}
+  while (
+    inicio < Math.min(lineasAnteriores.length, lineasActuales.length) &&
+    lineasAnteriores[inicio] === lineasActuales[inicio]
+  ) {
+    inicio++
+  }
+
   let fin = 0
 
-  while (fin < Math.min(a.length - inicio, b.length - inicio) && a[a.length - 1 - fin] === b[b.length - 1 - fin]) {fin++}
+  while (
+    fin < Math.min(lineasAnteriores.length - inicio, lineasActuales.length - inicio) &&
+    lineasAnteriores[lineasAnteriores.length - 1 - fin] === lineasActuales[lineasActuales.length - 1 - fin]
+  ) {
+    fin++
+  }
+
   return (
-    [...a.slice(inicio, a.length - fin).map((s) => `- ${s}`), ...b.slice(inicio, b.length - fin).map((s) => `+ ${s}`)].join(
-      '\n',
-    ) || '(sin cambios)'
+    [
+      ...lineasAnteriores.slice(inicio, lineasAnteriores.length - fin).map((linea) => `- ${linea}`),
+      ...lineasActuales.slice(inicio, lineasActuales.length - fin).map((linea) => `+ ${linea}`),
+    ].join('\n') || '(sin cambios)'
   )
 }
 
 export function ensayo(
   ctx: {
     session: {
-      get: (x: {
+      get: (entrada: {
         sessionID: string
       }) => Promise<{ agent?: string; model?: { providerID: string }; location: { directory: string } }>
     }
   },
   encargos: {
-    delegar: (x: { a: string; prompt: string }, tool: ToolContext, actor: Actor) => Promise<{ metadata: { hija: string } }>
+    delegar: (
+      entrada: { a: string; prompt: string },
+      tool: ToolContext,
+      actor: Actor,
+    ) => Promise<{ metadata: { hija: string } }>
   },
 ) {
   return async (input: { plan: string }, tool: ToolContext) => {
     const padre = await ctx.session.get({ sessionID: tool.sessionID })
 
-    if (padre.agent !== 'dramaturgo') {throw new Error('ensayar: solo el dramaturgo puede ensayar')}
+    if (padre.agent !== 'dramaturgo') {
+      throw new Error('ensayar: solo el dramaturgo puede ensayar')
+    }
+
     const raiz = resolve(padre.location.directory, '.reparto/planes')
     const ruta = resolve(padre.location.directory, input.plan)
     const relativa = relative(raiz, ruta)
 
-    if (isAbsolute(input.plan) || relativa.startsWith('..') || isAbsolute(relativa) || !relativa || !ruta.endsWith('.md'))
-      {throw new Error('ensayar: el plan debe estar bajo .reparto/planes/ y ser .md')}
+    if (isAbsolute(input.plan) || relativa.startsWith('..') || isAbsolute(relativa) || !relativa || !ruta.endsWith('.md')) {
+      throw new Error('ensayar: el plan debe estar bajo .reparto/planes/ y ser .md')
+    }
+
     const real = await realpath(ruta)
 
-    if (real !== ruta) {throw new Error('ensayar: no se permiten symlinks')}
+    if (real !== ruta) {
+      throw new Error('ensayar: no se permiten symlinks')
+    }
+
     const contenido = await Bun.file(ruta).text()
     const hash = createHash('sha256').update(contenido).digest('hex')
     const plan = real
@@ -222,21 +274,23 @@ export function ensayo(
 
         if (
           filas.length === 2 &&
-          filas.every((r) => r.veredicto !== 'pendiente') &&
+          filas.every((fila) => fila.veredicto !== 'pendiente') &&
           cerrado(
-            filas.map((r) => JSON.parse(r.veredicto) as Veredicto),
+            filas.map((fila) => JSON.parse(fila.veredicto) as Veredicto),
             acta,
-            filas.map((r) => r.hash),
+            filas.map((fila) => fila.hash),
           ) &&
           anterior.hash === hash
-        )
-          {return { content: JSON.stringify({ plan: nombre, ronda: anterior.ronda, cerrado: true, acta }) }}
+        ) {
+          return { content: JSON.stringify({ plan: nombre, ronda: anterior.ronda, cerrado: true, acta }) }
+        }
       }
 
-      if (anterior && anterior.ronda >= 5)
-        {return {
+      if (anterior && anterior.ronda >= 5) {
+        return {
           content: JSON.stringify({ plan: nombre, ronda: 5, cerrado: false, decision: 'Bryan debe decidir: máximo 5 rondas' }),
-        }}
+        }
+      }
     }
 
     const ronda = anterior?.veredicto === 'pendiente' ? anterior.ronda : (anterior?.ronda ?? 0) + 1
@@ -247,14 +301,23 @@ export function ensayo(
             .get({ plan, hash: anterior.hash }) as { contenido: string } | null)
         : { contenido }
 
-    if (!version) {throw new Error('ensayar: instantánea pendiente ausente')}
+    if (!version) {
+      throw new Error('ensayar: instantánea pendiente ausente')
+    }
+
     const hashRonda = anterior?.veredicto === 'pendiente' ? anterior.hash : hash
     const validacion = proceso.validacion
 
-    if (!validacion) {throw new Error('ensayar: actores aún no validados')}
+    if (!validacion) {
+      throw new Error('ensayar: actores aún no validados')
+    }
+
     const actores = elegirRevisores(validacion, padre.model?.providerID, deBaja(bajasVigentes(database)))
 
-    if (!actores) {throw new Error('ensayar: crítico u oracle sin actores disponibles')}
+    if (!actores) {
+      throw new Error('ensayar: crítico u oracle sin actores disponibles')
+    }
+
     const prevHash = database
       .query('SELECT hash FROM ensayos WHERE plan = $plan AND ronda = $ronda LIMIT 1')
       .get({ plan, ronda: ronda - 1 }) as { hash: string } | null
@@ -274,15 +337,19 @@ export function ensayo(
         for (const [revisor, actor] of [
           ['critico', actores.critico],
           ['oracle', actores.oracle],
-        ] as const)
-          {database
+        ] as const) {
+          database
             .query(`INSERT INTO ensayos (plan, ronda, hash, revisor, actor, veredicto) VALUES ($plan, $ronda, $hash, $revisor, $actor, 'pendiente')
           ON CONFLICT (plan, ronda, revisor) DO UPDATE SET veredicto = 'pendiente', actor = excluded.actor`)
-            .run({ plan, ronda, hash: hashRonda, revisor, actor: etiqueta(actor) })}
+            .run({ plan, ronda, hash: hashRonda, revisor, actor: etiqueta(actor) })
+        }
+
         return true
       })
-    )
-      {throw new Error('ensayar: no se pudo iniciar ronda')}
+    ) {
+      throw new Error('ensayar: no se pudo iniciar ronda')
+    }
+
     const contexto =
       ronda === 1
         ? 'Round 1: discovery.'
@@ -295,42 +362,51 @@ export function ensayo(
           .query('SELECT * FROM encargos WHERE hija = $hija ORDER BY id DESC LIMIT 1')
           .get({ hija: respuesta.metadata.hija }) as Encargo | null
 
-        if (fila?.estado !== 'terminado' || !fila.mensaje_final)
-          {throw new Error(`${revisor}: encargo no terminó (${fila?.estado})`)}
+        if (fila?.estado !== 'terminado' || !fila.mensaje_final) {
+          throw new Error(`${revisor}: encargo no terminó (${fila?.estado})`)
+        }
+
         return { revisor, actor: fila.actor, veredicto: parsearVeredicto(fila.mensaje_final), hija: fila.hija }
       }),
     )
 
-    if (resultados.some((r) => r.status === 'rejected'))
-      {throw new Error(
+    if (resultados.some((resultado) => resultado.status === 'rejected')) {
+      throw new Error(
         `ensayar: ronda ${ronda} incompleta; reintenta con encargos nuevos: ${resultados
-          .filter((r) => r.status === 'rejected')
-          .map((r) => String(r.reason))
+          .filter((resultado) => resultado.status === 'rejected')
+          .map((resultado) => String(resultado.reason))
           .join('; ')}`,
-      )}
-    const revisiones = resultados.filter((r) => r.status === 'fulfilled').map((r) => r.value)
+      )
+    }
+
+    const revisiones = resultados.filter((resultado) => resultado.status === 'fulfilled').map((resultado) => resultado.value)
     // An objection without round-1 justification is only a note and cannot block closure.
-    const efectivos = revisiones.map((r) => ({ ...r, veredicto: admitir(r.veredicto, ronda, acta) }))
+    const efectivos = revisiones.map((revision) => ({ ...revision, veredicto: admitir(revision.veredicto, ronda, acta) }))
     const final = write(database, 'cerrar ensayo', () => {
       const lista = actualizarActa(
         database,
         plan,
         ronda,
-        efectivos.map((r) => r.veredicto),
+        efectivos.map((revision) => revision.veredicto),
       )
 
-      for (const r of efectivos)
-        {database
+      for (const revision of efectivos) {
+        database
           .query(
             'UPDATE ensayos SET veredicto = $veredicto, actor = $actor WHERE plan = $plan AND ronda = $ronda AND revisor = $revisor',
           )
-          .run({ plan, ronda, revisor: r.revisor, actor: r.actor, veredicto: JSON.stringify(r.veredicto) })}
+          .run({ plan, ronda, revisor: revision.revisor, actor: revision.actor, veredicto: JSON.stringify(revision.veredicto) })
+      }
+
       return lista
     })
 
-    if (!final) {throw new Error('ensayar: no se pudo guardar la ronda')}
+    if (!final) {
+      throw new Error('ensayar: no se pudo guardar la ronda')
+    }
+
     const cierre = cerrado(
-      efectivos.map((r) => r.veredicto),
+      efectivos.map((revision) => revision.veredicto),
       final,
       [hashRonda, hashRonda],
     )

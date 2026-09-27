@@ -7,8 +7,8 @@ import { afterAll, expect, test } from 'bun:test'
 
 import { continuacion, decidirContinuacion, decisionGuardada } from '../src/continuacion.ts'
 import { openDb } from '../src/db.ts'
-import { clavePlan, evaluarEstreno, estreno, ligarSesion, planDeSesion, registrarEstreno, tareas } from '../src/estreno.ts'
-import { leerPendientes, escribirPendientes } from '../src/pendientes.ts'
+import { clavePlan, estreno, evaluarEstreno, ligarSesion, planDeSesion, registrarEstreno, tareas } from '../src/estreno.ts'
+import { escribirPendientes, leerPendientes } from '../src/pendientes.ts'
 import { proceso } from '../src/process.ts'
 
 import type { Plugin } from '@opencode/plugin'
@@ -21,15 +21,16 @@ const plan = '.reparto/planes/demo.md'
 const contenido = '## Tasks\n\n### T1: first\n- Do: a\n\n### T2: second\n- Do: b\n'
 const verdict = JSON.stringify({ veredicto: 'APROBADO', objeciones: [], notas: [], cierres: {} })
 
-function ensayado(nombre: string, hash: string, ronda: number, v = verdict) {
-  for (const revisor of ['critico', 'oracle'])
-    {db.query("INSERT INTO ensayos (plan, ronda, hash, revisor, actor, veredicto) VALUES (?, ?, ?, ?, 'p/m', ?)").run(
+function ensayado(nombre: string, hash: string, ronda: number, veredicto = verdict) {
+  for (const revisor of ['critico', 'oracle']) {
+    db.query("INSERT INTO ensayos (plan, ronda, hash, revisor, actor, veredicto) VALUES (?, ?, ?, ?, 'p/m', ?)").run(
       nombre,
       ronda,
       hash,
       revisor,
-      v,
-    )}
+      veredicto,
+    )
+  }
 }
 
 test('estreno accepts two approvals on current hash, seeds tasks and resumes instead of resetting', () => {
@@ -59,7 +60,7 @@ test('estreno refuses an edited current file even after version A was approved',
   ensayado(nombre, 'A', 1)
   expect(() => evaluarEstreno(db, nombre, 'B', false)).toThrow(/cambió.*versión ensayada/)
   registrarEstreno(db, { plan: nombre, hash: 'A' }, contenido, false)
-  expect(() => registrarEstreno(db, { plan: nombre, hash: 'B' }, `${contenido  }edited`, false)).toThrow(
+  expect(() => registrarEstreno(db, { plan: nombre, hash: 'B' }, `${contenido}edited`, false)).toThrow(
     /cambió después del estreno/,
   )
 })
@@ -69,7 +70,10 @@ test('con-objeciones requires completed fifth round and retains the open acta', 
   const nombre = `${plan}-fifth`
   const objeciones = JSON.stringify({ veredicto: 'OBJECIONES', objeciones: [{ seccion: 'T1' }], notas: [], cierres: {} })
 
-  for (let ronda = 1; ronda <= 5; ronda++) {ensayado(nombre, 'A', ronda, objeciones)}
+  for (let ronda = 1; ronda <= 5; ronda++) {
+    ensayado(nombre, 'A', ronda, objeciones)
+  }
+
   db.query(
     "INSERT INTO acta (plan, id, objecion, causa, condicion_cierre, ronda_entrada, estado) VALUES (?, 1, 'T1: risk', 'data', 'fix', 1, 'abierto')",
   ).run(nombre)
@@ -111,9 +115,11 @@ test('two open background encargos suppress continuation until they close', () =
 
   escribirPendientes(db, clavePlan(ref), tareas(contenido))
 
-  for (const hija of ['one', 'two'])
-    {db.query(`INSERT INTO encargos (hija, padre, a, actor, background, estado, boot_id, pid, starttime, creado)
-    VALUES (?, ?, 'rapido', 'p/m', 1, 'corriendo', 'b', 1, '1', 0)`).run(`${sesion}-${hija}`, sesion)}
+  for (const hija of ['one', 'two']) {
+    db.query(`INSERT INTO encargos (hija, padre, a, actor, background, estado, boot_id, pid, starttime, creado)
+    VALUES (?, ?, 'rapido', 'p/m', 1, 'corriendo', 'b', 1, '1', 0)`).run(`${sesion}-${hija}`, sesion)
+  }
+
   // When: the regidor goes idle; Then: it waits rather than prompting itself.
   expect(decisionGuardada(db, sesion, ref, 'bg-1')?.decision.tipo).toBe('esperar')
   db.query("UPDATE encargos SET estado = 'terminado' WHERE padre = ?").run(sesion)
@@ -167,14 +173,14 @@ test('two plugin instances handling one event send one prompt', async () => {
 
 test('same relative name in two locations does not share an ensayo or estreno', () => {
   // Given: identical relative plan names but distinct canonical paths.
-  const a = `/repo/a/${plan}`
-  const b = `/repo/b/${plan}`
+  const rutaA = `/repo/a/${plan}`
+  const rutaB = `/repo/b/${plan}`
 
-  ensayado(a, 'A', 1)
+  ensayado(rutaA, 'A', 1)
   // When: the second location attempts estreno; Then: it lacks its own review.
-  expect(() => registrarEstreno(db, { plan: b, hash: 'A' }, contenido, false)).toThrow(/no tiene ensayo/)
-  expect(registrarEstreno(db, { plan: a, hash: 'A' }, contenido, false).estreno.plan).toBe(a)
-  expect(db.query('SELECT plan FROM estrenos WHERE plan = ?').get(b)).toBeNull()
+  expect(() => registrarEstreno(db, { plan: rutaB, hash: 'A' }, contenido, false)).toThrow(/no tiene ensayo/)
+  expect(registrarEstreno(db, { plan: rutaA, hash: 'A' }, contenido, false).estreno.plan).toBe(rutaA)
+  expect(db.query('SELECT plan FROM estrenos WHERE plan = ?').get(rutaB)).toBeNull()
 })
 
 test('concurrent estreno reservations reuse the active session', () => {
@@ -243,16 +249,19 @@ test('two simultaneous estreno commands create just one regidor session', async 
   }
 })
 
-for (const failure of ['switch', 'delivery'] as const)
-  {test(`failed ${failure} releases the reservation so retry starts the regidor`, async () => {
+for (const failure of ['switch', 'delivery'] as const) {
+  test(`failed ${failure} releases the reservation so retry starts the regidor`, async () => {
     // Given: an approved plan and an empty session whose first switch or delivery fails.
     const location = join(dir, `retry-${failure}`)
     const path = join(location, '.reparto/planes/demo.md')
+
     mkdirSync(join(location, '.reparto/planes'), { recursive: true })
     writeFileSync(path, contenido)
     const hash = createHash('sha256').update(contenido).digest('hex')
+
     ensayado(path, hash, 1)
     const previous = proceso.db
+
     proceso.db = db
     let switches = 0
     let prompts = 0
@@ -262,16 +271,22 @@ for (const failure of ['switch', 'delivery'] as const)
         get: async () => ({ location: { directory: location } }),
         context: async () => [],
         switchAgent: async () => {
-          if (++switches === 1 && failure === 'switch') throw new Error('switch failed')
+          if (++switches === 1 && failure === 'switch') {
+            throw new Error('switch failed')
+          }
         },
         prompt: async (input: { sessionID: string; metadata?: Record<string, unknown> }) => {
-          if (++prompts === 1 && failure === 'delivery') throw new Error('delivery failed')
+          if (++prompts === 1 && failure === 'delivery') {
+            throw new Error('delivery failed')
+          }
+
           deliveries.push(input)
         },
       },
     } as unknown as Plugin.Context
     const sessionID = `ses_retry_${failure}`
     const command = () => estreno(ctx)({ sessionID, prompt: { text: '/estreno .reparto/planes/demo.md' } })
+
     try {
       // When: the first call fails; Then: the estreno and tasks remain, but the reservation does not.
       await expect(command()).rejects.toThrow(`${failure} failed`)
@@ -286,4 +301,5 @@ for (const failure of ['switch', 'delivery'] as const)
     } finally {
       proceso.db = previous
     }
-  })}
+  })
+}

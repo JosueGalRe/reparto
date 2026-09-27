@@ -76,7 +76,10 @@ test('vivo: este proceso sí; otro starttime u otro arranque, no', () => {
 test('dramaturgo solo delega lectura; director mantiene los papeles', () => {
   // Given: destinations for research and implementation.
   // When: each primary agent delegates; Then: the dramaturgo cannot launch an editing papel.
-  for (const a of ['utilero', 'archivista', 'oracle']) {expect(puedeDelegar('dramaturgo', a)).toBe(true)}
+  for (const agente of ['utilero', 'archivista', 'oracle']) {
+    expect(puedeDelegar('dramaturgo', agente)).toBe(true)
+  }
+
   expect(puedeDelegar('dramaturgo', 'protagonista')).toBe(false)
   expect(puedeDelegar('director', 'protagonista')).toBe(true)
 })
@@ -91,10 +94,10 @@ test('regidor without an estreno cannot delegate', async () => {
   try {
     proceso.db?.query("INSERT INTO sesiones_regidor (sesion, plan, hash) VALUES ('ses_unapproved', '/repo/demo.md', 'A')").run()
     // When: it calls delegar; Then: it is directed to the estreno command.
-    const e = encargos(ctx as unknown as Parameters<typeof encargos>[0], {})
+    const gestor = encargos(ctx as unknown as Parameters<typeof encargos>[0], {})
 
     await expect(
-      e.delegar({ a: 'utilero', prompt: 'read' }, { sessionID: 'ses_unapproved' } as Parameters<typeof e.delegar>[1]),
+      gestor.delegar({ a: 'utilero', prompt: 'read' }, { sessionID: 'ses_unapproved' } as Parameters<typeof gestor.delegar>[1]),
     ).rejects.toThrow('usa /estreno <plan>')
   } finally {
     proceso.validacion = previous
@@ -115,26 +118,26 @@ test('título de encargo resume la primera línea no vacía y recorta a 60 carac
 })
 
 test('aviso terminado incluye título, resultado y pista de bitácora', () => {
-  const e = { ...leer(crear('terminado'))!, mensaje_final: 'OK' }
-  const texto = textoAviso(e, 'openai/x', 'rapido · Responder OK')
+  const encargo = { ...leer(crear('terminado'))!, mensaje_final: 'OK' }
+  const texto = textoAviso(encargo, 'openai/x', 'rapido · Responder OK')
 
   expect(texto).toBe(
-    `[reparto] rapido · Responder OK — terminado (${e.hija})\n\nOK\n(bitacora({ id: "${e.hija}" }) para el resto)`,
+    `[reparto] rapido · Responder OK — terminado (${encargo.hija})\n\nOK\n(bitacora({ id: "${encargo.hija}" }) para el resto)`,
   )
 })
 
 test('aviso fallido incluye error, último actor y suplente', () => {
-  const e = { ...leer(crear('fallido'))!, error: 'sin salida', mensaje_final: 'último' }
-  const texto = textoAviso(e, 'openai/y', 'rapido · Responder OK')
+  const encargo = { ...leer(crear('fallido'))!, error: 'sin salida', mensaje_final: 'último' }
+  const texto = textoAviso(encargo, 'openai/y', 'rapido · Responder OK')
 
-  expect(texto).toContain(`— fallido (${e.hija})\n\nError: sin salida. Último actor: openai/y.`)
+  expect(texto).toContain(`— fallido (${encargo.hija})\n\nError: sin salida. Último actor: openai/y.`)
   expect(texto).toContain('entró como suplente en lugar de openai/x.')
   expect(texto).toContain('Último mensaje: último')
 })
 
 test('aviso recorta el resultado largo', () => {
-  const e = { ...leer(crear('terminado'))!, mensaje_final: 'x'.repeat(2_000) }
-  const texto = textoAviso(e, 'openai/x', 'rapido · Responder OK')
+  const encargo = { ...leer(crear('terminado'))!, mensaje_final: 'x'.repeat(2_000) }
+  const texto = textoAviso(encargo, 'openai/x', 'rapido · Responder OK')
 
   expect(texto).toContain(`${'x'.repeat(1_500)}\n[… recortado, 500 caracteres más]`)
   expect(texto).not.toContain('x'.repeat(1_501))
@@ -171,11 +174,11 @@ test('un requestID duplicado solo gana el INSERT una vez', () => {
 
 test('permission.asked actualiza actividad y evita estancado mientras espera', async () => {
   // Given: un encargo abierto con actividad vieja y una notificación observable.
-  const e = leer(crear('corriendo'))!
+  const encargo = leer(crear('corriendo'))!
 
-  proceso.abiertos = new Map([[e.hija, { id: e.id, actividad: 1 }]])
+  proceso.abiertos = new Map([[encargo.hija, { id: encargo.id, actividad: 1 }]])
   let notices = 0
-  let notified: () => void = () => {}
+  let notified: () => void
   const notice = new Promise<void>((resolve) => {
     notified = resolve
   })
@@ -192,7 +195,12 @@ test('permission.asked actualiza actividad y evita estancado mientras espera', a
   // When: llega el evento de V2.
   const asked = {
     type: 'permission.asked',
-    data: { id: `per_${crypto.randomUUID()}`, sessionID: e.hija, action: 'external_directory', resources: ['/tmp/outside/*'] },
+    data: {
+      id: `per_${crypto.randomUUID()}`,
+      sessionID: encargo.hija,
+      action: 'external_directory',
+      resources: ['/tmp/outside/*'],
+    },
   }
 
   job.evento(asked)
@@ -200,30 +208,30 @@ test('permission.asked actualiza actividad y evita estancado mientras espera', a
   await notice
   // Then: se registró la espera y el vigilante no marca estancado ni con actividad antigua.
   expect(notices).toBe(1)
-  expect(proceso.abiertos.get(e.hija)?.actividad).toBeGreaterThan(1)
-  expect(permisoPendiente(e.hija)).toBe(true)
-  proceso.abiertos.get(e.hija)!.actividad = 1
+  expect(proceso.abiertos.get(encargo.hija)?.actividad).toBeGreaterThan(1)
+  expect(permisoPendiente(encargo.hija)).toBe(true)
+  proceso.abiertos.get(encargo.hija)!.actividad = 1
   await job.vigilar()
-  expect(leer(e.id)?.estado).toBe('corriendo')
-  proceso.abiertos.delete(e.hija)
+  expect(leer(encargo.id)?.estado).toBe('corriendo')
+  proceso.abiertos.delete(encargo.hija)
 })
 
 test('permission.replied actualiza actividad y cierra la espera', () => {
   // Given: un permiso pendiente en un encargo abierto.
-  const e = leer(crear('corriendo'))!
+  const encargo = leer(crear('corriendo'))!
   const requestID = `per_${crypto.randomUUID()}`
 
-  registrarPermiso({ id: requestID, sessionID: e.hija, action: 'read', resources: ['/tmp/outside/*'] })
-  proceso.abiertos = new Map([[e.hija, { id: e.id, actividad: 1 }]])
+  registrarPermiso({ id: requestID, sessionID: encargo.hija, action: 'read', resources: ['/tmp/outside/*'] })
+  proceso.abiertos = new Map([[encargo.hija, { id: encargo.id, actividad: 1 }]])
   // When: V2 informa la respuesta dada en la hija.
   encargos({} as never, {} as never).evento({
     type: 'permission.replied',
-    data: { sessionID: e.hija, requestID, reply: 'once' },
+    data: { sessionID: encargo.hija, requestID, reply: 'once' },
   })
   // Then: se libera la espera y queda registrada actividad reciente.
-  expect(permisoPendiente(e.hija)).toBe(false)
-  expect(proceso.abiertos.get(e.hija)?.actividad).toBeGreaterThan(1)
-  proceso.abiertos.delete(e.hija)
+  expect(permisoPendiente(encargo.hija)).toBe(false)
+  expect(proceso.abiertos.get(encargo.hija)?.actividad).toBeGreaterThan(1)
+  proceso.abiertos.delete(encargo.hija)
 })
 
 test("bitacora records a native child's tool calls and reads its final message", async () => {
@@ -285,8 +293,8 @@ test('native stale watcher sends one notice, skips pending permission and stops 
   const notices: string[] = []
   const ctx = {
     session: {
-      prompt: async (x: { text: string }) => {
-        notices.push(x.text)
+      prompt: async (entrada: { text: string }) => {
+        notices.push(entrada.text)
       },
     },
   }

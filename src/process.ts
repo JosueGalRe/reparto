@@ -31,4 +31,5 @@ export interface Proceso {
 const key = Symbol.for('reparto.proceso')
 const global = globalThis as { [key]?: Proceso }
 
-export const proceso: Proceso = (global[key] ??= { firma: '' })
+global[key] ??= { firma: '' }
+export const proceso: Proceso = global[key]

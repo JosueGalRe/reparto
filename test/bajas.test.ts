@@ -4,18 +4,19 @@ import { resolver, siguiente, type Validacion } from '../src/actores.ts'
 import { type Baja, clasificar, deBaja, type ErrorCrudo, guardarError, reset, tomarError } from '../src/bajas.ts'
 
 // Cuerpos y headers de las sondas S3 (test/fixtures/s3-errores.jsonl)
-const lineas = (await Bun.file(new URL('fixtures/s3-errores.jsonl', import.meta.url)).text())
+const archivo = await Bun.file(new URL('fixtures/s3-errores.jsonl', import.meta.url)).text()
+const lineas = archivo
   .trim()
   .split('\n')
-  .map((l) => JSON.parse(l))
+  .map((linea) => JSON.parse(linea))
 const http = (status: number, codigo?: string) =>
-  lineas.find((l) => l.sonda === 's3.http.error' && l.status === status && (!codigo || l.body.includes(codigo)))
-const crudo = (l: { body: string; headers: Record<string, string> }, actor = 'a/b#default'): ErrorCrudo => ({
+  lineas.find((linea) => linea.sonda === 's3.http.error' && linea.status === status && (!codigo || linea.body.includes(codigo)))
+const crudo = (entrada: { body: string; headers: Record<string, string> }, actor = 'a/b#default'): ErrorCrudo => ({
   actor,
-  cuerpo: l.body,
-  headers: l.headers,
+  cuerpo: entrada.body,
+  headers: entrada.headers,
 })
-const ws = lineas.find((l) => l.sonda === 's3.ws.receive')
+const ws = lineas.find((linea) => linea.sonda === 's3.ws.receive')
 const ahora = Date.parse('2026-09-25T15:40:00Z')
 
 test('openai por WebSocket: cuota con el reset del frame (resets_at)', () => {

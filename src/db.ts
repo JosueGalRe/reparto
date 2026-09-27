@@ -134,12 +134,15 @@ const isBusy = (error: unknown) => error instanceof Error && 'code' in error && 
  * Transacción corta (IMMEDIATE). SQLite respeta busy_timeout pero no garantiza turno (S5): un SQLITE_BUSY se
  * reintenta una vez; si vuelve a fallar queda en el log y devuelve undefined. Nunca lanza.
  */
-export function write<T>(database: Database, what: string, fn: () => T): T | undefined {
+export function write<operacion>(database: Database, what: string, fn: () => operacion): operacion | undefined {
   for (let attempt = 1; ; attempt++) {
     try {
       return database.transaction(fn).immediate()
     } catch (error) {
-      if (isBusy(error) && attempt === 1) {continue}
+      if (isBusy(error) && attempt === 1) {
+        continue
+      }
+
       log.error('escritura en SQLite falló', { what, attempt, error: String(error) })
 
       return undefined

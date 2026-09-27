@@ -39,7 +39,7 @@ test('ON CONFLICT: la última baja del mismo proveedor reemplaza a la anterior; 
   registrarBaja(db, { tipo: 'proveedor', id: 'claude-code', motivo: 'plazoBaja', hasta: Date.now() + 1000 })
   registrarBaja(db, { tipo: 'proveedor', id: 'claude-code', motivo: 'resets_at', hasta: Date.now() + 5000 })
   registrarBaja(db, { tipo: 'actor', id: 'openai/gpt-6-sol#medium', motivo: 'auth', hasta: Date.now() - 1 })
-  expect(bajasVigentes(db).map((b) => b.motivo)).toEqual(['resets_at'])
+  expect(bajasVigentes(db).map((baja) => baja.motivo)).toEqual(['resets_at'])
 })
 
 test('una sola fila abierta por hija', () => {

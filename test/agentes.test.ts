@@ -31,8 +31,9 @@ test('director: la lista permitida va después de negar todo, y las restriccione
   ]
   const { director, papel } = permisos(base)
   const ultima = (action: string, resource = '*') =>
-    director.findLast((r) => (r.action === action || r.action === '*') && (r.resource === resource || r.resource === '*'))
-      ?.effect
+    director.findLast(
+      (regla) => (regla.action === action || regla.action === '*') && (regla.resource === resource || regla.resource === '*'),
+    )?.effect
 
   expect(ultima('edit')).toBe('deny')
   expect(ultima('pty_spawn')).toBe('deny')
@@ -41,7 +42,7 @@ test('director: la lista permitida va después de negar todo, y las restriccione
   expect(ultima('read', '*.env')).toBe('ask')
 
   for (const action of ['question', 'subagent', 'delegar', 'context7_*', 'grep_app_*']) {
-    expect(papel.findLast((r) => r.action === action)?.effect).toBe('deny')
+    expect(papel.findLast((regla) => regla.action === action)?.effect).toBe('deny')
   }
 })
 
@@ -79,7 +80,9 @@ test.each(['edit', 'write', 'patch'])('dramaturgo: %s solo permite rutas de plan
   // When: a write target is checked; Then: only a local plan passes.
   expect(efecto('.reparto/planes/x.md')).toBe('allow')
 
-  for (const path of ['src/x.ts', '.reparto/otro/x.md', '../.reparto/planes/x.md']) {expect(efecto(path)).toBe('deny')}
+  for (const path of ['src/x.ts', '.reparto/otro/x.md', '../.reparto/planes/x.md']) {
+    expect(efecto(path)).toBe('deny')
+  }
 })
 
 test('utilero: shell abierto, edición y delegación negadas', () => {
@@ -93,8 +96,13 @@ test('utilero: shell abierto, edición y delegación negadas', () => {
           (rule.resource.endsWith('*') && resource.startsWith(rule.resource.slice(0, -1)))),
     )?.effect
 
-  for (const command of ['ls -la', 'jq . f', "sqlite3 -readonly db 'select 1'"]) {expect(efecto('shell', command)).toBe('allow')}
-  for (const tool of ['edit', 'write', 'patch', 'subagent', 'delegar', 'interrumpir']) {expect(efecto(tool, '*')).toBe('deny')}
+  for (const command of ['ls -la', 'jq . f', "sqlite3 -readonly db 'select 1'"]) {
+    expect(efecto('shell', command)).toBe('allow')
+  }
+
+  for (const tool of ['edit', 'write', 'patch', 'subagent', 'delegar', 'interrumpir']) {
+    expect(efecto(tool, '*')).toBe('deny')
+  }
 })
 
 test('dramaturgo puede ensayar y leer bitacora; critico sigue siendo de solo lectura', () => {
@@ -102,11 +110,15 @@ test('dramaturgo puede ensayar y leer bitacora; critico sigue siendo de solo lec
   const { dramaturgo, subagenteLectura } = permisos([])
 
   // When: the final matching rule is resolved; Then: only dramaturgo gets the ensayo tools.
-  for (const nombre of ['ensayar', 'bitacora'])
-    {expect(dramaturgo.findLast((r) => r.action === nombre || r.action === '*')?.effect).toBe('allow')}
-  for (const nombre of ['edit', 'write', 'patch', 'delegar', 'ensayar'])
-    {expect(subagenteLectura.findLast((r) => r.action === nombre || r.action === '*')?.effect).toBe('deny')}
-  expect(subagenteLectura.findLast((r) => r.action === 'shell' || r.action === '*')?.effect).toBe('allow')
+  for (const nombre of ['ensayar', 'bitacora']) {
+    expect(dramaturgo.findLast((regla) => regla.action === nombre || regla.action === '*')?.effect).toBe('allow')
+  }
+
+  for (const nombre of ['edit', 'write', 'patch', 'delegar', 'ensayar']) {
+    expect(subagenteLectura.findLast((regla) => regla.action === nombre || regla.action === '*')?.effect).toBe('deny')
+  }
+
+  expect(subagenteLectura.findLast((regla) => regla.action === 'shell' || regla.action === '*')?.effect).toBe('allow')
 })
 
 test("regidor keeps director's read-only rules without inheriting context7", () => {
@@ -139,9 +151,9 @@ test("regidor keeps director's read-only rules without inheriting context7", () 
   registrar(editor)
   expect(agents.get('regidor')?.mode).toBe('primary')
   expect(agents.get('regidor')?.permissions.slice(0, -2)).toEqual(permisos([]).regidor)
-  expect(agents.get('regidor')?.permissions.findLast((r) => r.action === 'context7_*')?.effect).toBe('deny')
-  expect(agents.get('archivista')?.permissions.findLast((r) => r.action === 'grep_app_*')?.effect).toBe('allow')
-  expect(agents.get('general')?.permissions.findLast((r) => r.action === 'grep_app_*')?.effect).toBe('deny')
+  expect(agents.get('regidor')?.permissions.findLast((regla) => regla.action === 'context7_*')?.effect).toBe('deny')
+  expect(agents.get('archivista')?.permissions.findLast((regla) => regla.action === 'grep_app_*')?.effect).toBe('allow')
+  expect(agents.get('general')?.permissions.findLast((regla) => regla.action === 'grep_app_*')?.effect).toBe('deny')
 })
 
 test('MCP permissions only expose context7 to director and archivista, grep_app to archivista', () => {
@@ -187,6 +199,9 @@ test('ruteo: un papel desactivado no aparece en la tabla, y las exclusiones se l
 test('el guion de lectura lista exactamente los comandos permitidos', async () => {
   const { comandosDeLectura, seccionShell } = await import('../src/agentes.ts')
 
-  for (const comando of comandosDeLectura) {expect(seccionShell).toContain(`\`${comando}\``)}
+  for (const comando of comandosDeLectura) {
+    expect(seccionShell).toContain(`\`${comando}\``)
+  }
+
   expect(comandosDeLectura).toEqual(expect.arrayContaining(['git ls-files*', 'git log*', 'git show*']))
 })

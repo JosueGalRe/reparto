@@ -26,23 +26,36 @@ export function escribirPendientes(db: Database, clave: string, items: Item[]) {
 }
 
 export function parsearItems(input: unknown): Item[] | undefined {
-  const x = (input ?? {}) as { items?: unknown }
+  const entrada = (input ?? {}) as { items?: unknown }
 
-  if (x.items === undefined) {return undefined}
-  if (!Array.isArray(x.items)) {throw new Error('pendientes: `items` tiene que ser una lista')}
-  return x.items.map((item, i) => {
-    const r = (item ?? {}) as Record<string, unknown>
+  if (entrada.items === undefined) {
+    return undefined
+  }
 
-    if (typeof r.texto !== 'string' || !r.texto.trim()) {throw new Error(`pendientes: items[${i}] sin \`texto\``)}
-    const estado = r.estado ?? 'pendiente'
+  if (!Array.isArray(entrada.items)) {
+    throw new Error('pendientes: `items` tiene que ser una lista')
+  }
 
-    if (!estados.includes(estado as Item['estado']))
-      {throw new Error(`pendientes: items[${i}].estado tiene que ser ${estados.join(', ')}`)}
-    return { texto: r.texto, estado: estado as Item['estado'] }
+  return entrada.items.map((item, indice) => {
+    const registro = (item ?? {}) as Record<string, unknown>
+
+    if (typeof registro.texto !== 'string' || !registro.texto.trim()) {
+      throw new Error(`pendientes: items[${indice}] sin \`texto\``)
+    }
+
+    const estado = registro.estado ?? 'pendiente'
+
+    if (!estados.includes(estado as Item['estado'])) {
+      throw new Error(`pendientes: items[${indice}].estado tiene que ser ${estados.join(', ')}`)
+    }
+
+    return { texto: registro.texto, estado: estado as Item['estado'] }
   })
 }
 
 const marca: Record<Item['estado'], string> = { pendiente: '[ ]', en_curso: '[~]', hecho: '[x]', descartado: '[-]' }
 
 export const formatear = (items: Item[]) =>
-  items.length ? items.map((item, i) => `${i + 1}. ${marca[item.estado]} ${item.texto}`).join('\n') : '(la lista está vacía)'
+  items.length
+    ? items.map((item, indice) => `${indice + 1}. ${marca[item.estado]} ${item.texto}`).join('\n')
+    : '(la lista está vacía)'

@@ -13,7 +13,7 @@ function write(level: 'info' | 'warn' | 'error', message: string, data?: Record<
 
   try {
     mkdirSync(dirname(file), { recursive: true })
-    appendFileSync(file, `${line  }\n`)
+    appendFileSync(file, `${line}\n`)
   } catch {
     // Ponytail: el log nunca tumba al plugin; stderr ya lo tiene
   }

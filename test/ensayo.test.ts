@@ -81,7 +81,9 @@ test('a malformed reviewer leaves the round pending and relaunches fresh encargo
     await expect(run({ plan: '.reparto/planes/demo.md' }, tool)).rejects.toThrow(/ronda 1 incompleta/)
     expect(database.query('SELECT DISTINCT veredicto FROM ensayos').all()).toEqual([{ veredicto: 'pendiente' }])
     // When: retried; Then: both reviewers get new encargos and can close the round.
-    expect(JSON.parse((await run({ plan: '.reparto/planes/demo.md' }, tool)).content).cerrado).toBe(true)
+    const acta = await run({ plan: '.reparto/planes/demo.md' }, tool)
+
+    expect(JSON.parse(acta.content).cerrado).toBe(true)
     expect(launched).toBe(4)
   } finally {
     proceso.db = previous.db
@@ -109,13 +111,13 @@ test('selects distinct available providers, or marks repeated providers after ba
     repetidos: false,
   })
   // Even if one reviewer must share the dramaturgo's provider, keep the reviewers distinct.
-  expect(elegirRevisores(validacion, 'openai', (a) => a.model.startsWith('kimi-code-plan-global/'))).toEqual({
+  expect(elegirRevisores(validacion, 'openai', (actor) => actor.model.startsWith('kimi-code-plan-global/'))).toEqual({
     critico: { model: 'openai/cheap' },
     oracle: { model: 'opencode-go/cheap' },
     repetidos: true,
   })
   // When: both alternate providers are down; Then: the round still runs, explicitly marked.
-  expect(elegirRevisores(validacion, 'openai', (a) => !a.model.startsWith('openai/'))?.repetidos).toBe(true)
+  expect(elegirRevisores(validacion, 'openai', (actor) => !actor.model.startsWith('openai/'))?.repetidos).toBe(true)
   expect(elegirRevisores(validacion, 'openai', () => true)).toBeUndefined()
 })
 
@@ -153,7 +155,7 @@ test('round-one objections form acta; unjustified new objection stays a note and
 
 test('approval closes only when both reviewers approved the same hash and all acta entries closed', () => {
   // Given: two approvals and a closed acta entry; When: hashes diverge; Then: no closure.
-  const v = parsearVeredicto('VEREDICTO: APROBADO')
+  const veredicto = parsearVeredicto('VEREDICTO: APROBADO')
   const entry = {
     plan: 'p',
     id: 1,
@@ -164,7 +166,7 @@ test('approval closes only when both reviewers approved the same hash and all ac
     estado: 'cerrado' as const,
   }
 
-  expect(cerrado([v, v], [entry], ['one', 'two'])).toBe(false)
-  expect(cerrado([v, v], [{ ...entry, estado: 'abierto' }], ['one', 'one'])).toBe(false)
-  expect(cerrado([v, v], [entry], ['one', 'one'])).toBe(true)
+  expect(cerrado([veredicto, veredicto], [entry], ['one', 'two'])).toBe(false)
+  expect(cerrado([veredicto, veredicto], [{ ...entry, estado: 'abierto' }], ['one', 'one'])).toBe(false)
+  expect(cerrado([veredicto, veredicto], [entry], ['one', 'one'])).toBe(true)
 })

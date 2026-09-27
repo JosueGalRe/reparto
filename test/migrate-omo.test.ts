@@ -26,7 +26,7 @@ test('no se adivina fuera de la escala: MiniMax max no pasa a none', () => {
 })
 
 test('sin herencia: la entrada sin reasoning va sin variant y lo anota; el titular repetido en models no se duplica', () => {
-  const r = migrarReparto(
+  const migrados = migrarReparto(
     {
       model: 'openai/gpt-6-sol',
       reasoning: 'medium',
@@ -36,13 +36,20 @@ test('sin herencia: la entrada sin reasoning va sin variant y lo anota; el titul
     false,
   )
 
-  expect(r.map((m) => m.actor)).toEqual([{ model: 'openai/gpt-6-sol', variant: 'medium' }, { model: 'opencode-go/kimi-k3' }])
-  expect(r[1]!.nota).toBe('OMO heredaba "medium"; sin herencia: default del proveedor')
+  expect(migrados.map((migrado) => migrado.actor)).toEqual([
+    { model: 'openai/gpt-6-sol', variant: 'medium' },
+    { model: 'opencode-go/kimi-k3' },
+  ])
+  expect(migrados[1]!.nota).toBe('OMO heredaba "medium"; sin herencia: default del proveedor')
 })
 
 test('categoría: models[0] es el titular y el resto hereda su reasoning en OMO', () => {
-  const r = migrarReparto({ models: [{ model: 'openai/gpt-6-sol', reasoning: 'xhigh' }, 'opencode-go/kimi-k3'] }, catalog, true)
+  const migrados = migrarReparto(
+    { models: [{ model: 'openai/gpt-6-sol', reasoning: 'xhigh' }, 'opencode-go/kimi-k3'] },
+    catalog,
+    true,
+  )
 
-  expect(r[0]!.actor).toEqual({ model: 'openai/gpt-6-sol', variant: 'xhigh' })
-  expect(r[1]!.nota).toContain('"xhigh"')
+  expect(migrados[0]!.actor).toEqual({ model: 'openai/gpt-6-sol', variant: 'xhigh' })
+  expect(migrados[1]!.nota).toContain('"xhigh"')
 })

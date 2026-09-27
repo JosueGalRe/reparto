@@ -11,7 +11,11 @@ export const conShellDeLectura = new Set(['director', 'dramaturgo', 'regidor'])
 
 const guion = (nombre: string) => readFileSync(new URL(`../guiones/${nombre}.md`, import.meta.url), 'utf8').trim()
 
-interface Rule { action: string; resource: string; effect: 'allow' | 'deny' | 'ask' }
+interface Rule {
+  action: string
+  resource: string
+  effect: 'allow' | 'deny' | 'ask'
+}
 const allow = (...actions: string[]): Rule[] => actions.map((action) => ({ action, resource: '*', effect: 'allow' }))
 const deny = (...actions: string[]): Rule[] => actions.map((action) => ({ action, resource: '*', effect: 'deny' }))
 const mcpActions = ['context7_*', 'grep_app_*'] as const
@@ -32,7 +36,7 @@ export const comandosDeLectura = [
 // Ponytail: acoplado al plugin vendor/rtk.ts; cuando el shim exponga el agente, rtk debe omitir los de solo lectura.
 const shellDeLectura: Rule[] = [
   ...comandosDeLectura,
-  ...comandosDeLectura.filter((c) => c !== 'head *').map((c) => `rtk ${c}`),
+  ...comandosDeLectura.filter((comando) => comando !== 'head *').map((comando) => `rtk ${comando}`),
 ].map((resource) => ({
   action: 'shell',
   resource,
@@ -72,7 +76,7 @@ function subagenteSoloLectura(base: Rule[]): Rule[] {
 /** Se agrega al guion de los agentes con shell de lectura: V2 no les muestra qué comandos están permitidos. */
 export const seccionShell = [
   '## Shell',
-  `\`shell\` only runs these read commands: ${comandosDeLectura.map((c) => `\`${c}\``).join(', ')}.`,
+  `\`shell\` only runs these read commands: ${comandosDeLectura.map((comando) => `\`${comando}\``).join(', ')}.`,
   'Run one command per shell call. Do not chain with `&&` or `;`, and do not add helpers such as `printf`, `echo`, `cat`, `ls`, `find`, `wc` or `sort`: they are not on the list, so the whole call is denied. ' +
     'The only pipe allowed is into `head`. Redirection (`>`, `<`), backticks, newlines and the options `--output`, `--ext-diff`, `--textconv`, `--pre` are denied too. ' +
     'List files with `rg --files` or `git ls-files`, search with `grep` or `rg`, find paths with `glob`, and read files with `read`. If a command is denied, do not retry variations of it.',
@@ -126,11 +130,17 @@ export function registrar(editor: AgentEditor) {
   definir('regidor', 'primary', `${guion('regidor')}\n\n${seccionShell}`, reglas.regidor)
   definir('dramaturgo', 'primary', `${guion('dramaturgo')}\n\n${seccionShell}`, reglas.dramaturgo)
 
-  for (const id of ['utilero', 'oracle', 'critico']) {definir(id, 'subagent', guion(id), reglas.subagenteLectura)}
+  for (const id of ['utilero', 'oracle', 'critico']) {
+    definir(id, 'subagent', guion(id), reglas.subagenteLectura)
+  }
+
   definir('archivista', 'subagent', guion('archivista'), reglas.archivista)
 
   // Los papeles no se invocan por nombre (no son agentes): se ocultan del `@`.
-  for (const id of papeles) {definir(id, 'subagent', `${guion('papel')}\n\n${guion(id)}`, reglas.papel, true)}
+  for (const id of papeles) {
+    definir(id, 'subagent', `${guion('papel')}\n\n${guion(id)}`, reglas.papel, true)
+  }
+
   editor.update('build', (agent) => {
     agent.permissions.push(...deny('subagent', ...mcpActions))
   })
@@ -138,7 +148,10 @@ export function registrar(editor: AgentEditor) {
   for (const agent of editor.list()) {
     const id = String(agent.id)
 
-    if (id === 'director' || id === 'archivista' || id === 'build') {continue}
+    if (id === 'director' || id === 'archivista' || id === 'build') {
+      continue
+    }
+
     editor.update(id, (entry) => entry.permissions.push(...deny(...mcpActions)))
   }
 
@@ -147,20 +160,26 @@ export function registrar(editor: AgentEditor) {
 
 /** Parte de sistema que se agrega en cada request del director: los papeles activos y lo que quedó excluido. */
 export function ruteo(validacion: Validacion | undefined): string {
-  const desactivados = new Set(validacion?.desactivados ?? [])
+  const desactivados = new Set(validacion?.desactivados)
   const filas = guion('ruteo')
     .split('\n')
     .filter((fila) => !papeles.some((papel) => desactivados.has(papel) && fila.startsWith(`| \`${papel}\``)))
   const partes = ['## Routing table', filas.join('\n')]
   const disabled = papeles.filter((papel) => desactivados.has(papel))
 
-  if (disabled.length)
-    {partes.push(`Disabled papeles (no valid actor, do not delegate to them): ${disabled.map((p) => `\`${p}\``).join(', ')}.`)}
+  if (disabled.length) {
+    partes.push(
+      `Disabled papeles (no valid actor, do not delegate to them): ${disabled.map((papel) => `\`${papel}\``).join(', ')}.`,
+    )
+  }
+
   if (validacion?.exclusiones.length) {
     partes.push(
       '## Excluded actors',
       'These actors in reparto.jsonc failed validation against the model catalog and will not run. Mention them to the user briefly in your first reply of this session:',
-      validacion.exclusiones.map((e) => `- ${e.tipo} \`${e.nombre}\`: ${e.actor}: ${e.motivo}`).join('\n'),
+      validacion.exclusiones
+        .map((exclusion) => `- ${exclusion.tipo} \`${exclusion.nombre}\`: ${exclusion.actor}: ${exclusion.motivo}`)
+        .join('\n'),
     )
   }
 
@@ -169,10 +188,21 @@ export function ruteo(validacion: Validacion | undefined): string {
 
 /** Lo que las reglas de V2 dejan pasar dentro de un tramo permitido y reparto niega (S7, ADR 0006). */
 export function motivoNegado(tramo: string): string | undefined {
-  if (/[<>]/.test(tramo)) {return 'redirección'}
-  if (tramo.includes('`')) {return 'backticks'}
-  if (/[\r\n]/.test(tramo)) {return 'salto de línea'}
+  if (/[<>]/.test(tramo)) {
+    return 'redirección'
+  }
+
+  if (tramo.includes('`')) {
+    return 'backticks'
+  }
+
+  if (/[\r\n]/.test(tramo)) {
+    return 'salto de línea'
+  }
+
   const opcion = tramo.match(/(?:^|\s)(--(?:output|ext-diff|textconv|pre|pre-glob))(?:[=\s]|$)/)
 
-  if (opcion) {return `opción ${opcion[1]}`}
+  if (opcion) {
+    return `opción ${opcion[1]}`
+  }
 }

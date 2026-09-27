@@ -30,38 +30,37 @@ const config: Config = {
   },
 }
 
-const v = validar(config, catalog, ['build', 'plan', 'general'])
+const validacion = validar(config, catalog, ['build', 'plan', 'general'])
 
 test('variant fuera del catálogo: excluido, y la resolución devuelve el siguiente actor', () => {
-  expect(v.exclusiones).toContainEqual({
+  expect(validacion.exclusiones).toContainEqual({
     nombre: 'rapido',
     tipo: 'papel',
     actor: 'opencode-go/kimi-k3#low',
     motivo: 'el variant "low" no está en el catálogo (hay: max)',
   })
-  expect(resolver(v, 'rapido')).toEqual({ model: 'kimi-code-plan-global/k3', variant: 'low' })
+  expect(resolver(validacion, 'rapido')).toEqual({ model: 'kimi-code-plan-global/k3', variant: 'low' })
 })
 
 test('modelo con enabled: false queda excluido', () => {
-  expect(v.exclusiones).toContainEqual(
+  expect(validacion.exclusiones).toContainEqual(
     expect.objectContaining({ actor: 'openai/gpt-4o-legacy', motivo: expect.stringContaining('enabled: false') }),
   )
-  expect(resolver(v, 'visual')).toEqual({ model: 'openai/gpt-5.5', variant: 'high' })
+  expect(resolver(validacion, 'visual')).toEqual({ model: 'openai/gpt-5.5', variant: 'high' })
 })
 
 test('papel sin actores válidos sale desactivado', () => {
-  expect(v.desactivados).toEqual(['prosa'])
-  expect(resolver(v, 'prosa')).toBeUndefined()
-  expect(v.exclusiones.filter((e) => e.nombre === 'prosa').map((e) => e.motivo)).toEqual([
-    'el variant "off" no está en el catálogo (el modelo no tiene variants)',
-    'el modelo no está en el catálogo',
-  ])
+  expect(validacion.desactivados).toEqual(['prosa'])
+  expect(resolver(validacion, 'prosa')).toBeUndefined()
+  expect(
+    validacion.exclusiones.filter((exclusion) => exclusion.nombre === 'prosa').map((exclusion) => exclusion.motivo),
+  ).toEqual(['el variant "off" no está en el catálogo (el modelo no tiene variants)', 'el modelo no está en el catálogo'])
 })
 
 test('sin variant corre el default: válido aunque el modelo no tenga variants', () => {
-  expect(resolver(v, 'estelar')).toEqual({ model: 'opencode-go/qwen3.7-plus' })
+  expect(resolver(validacion, 'estelar')).toEqual({ model: 'opencode-go/qwen3.7-plus' })
 })
 
 test('agentes: los propios y los que existen en V2 pasan; el resto se avisa', () => {
-  expect(v.desconocidos).toEqual(['sisyphus'])
+  expect(validacion.desconocidos).toEqual(['sisyphus'])
 })

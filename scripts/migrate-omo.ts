@@ -43,30 +43,45 @@ export interface Migrado {
 
 /** OMO reasoning → raw V2 variant (ADR 0002). `heredado` is what OMO would have inherited for an entry without reasoning. */
 export function migrarActor(model: string, reasoning: string | undefined, catalog: Catalog, heredado?: string): Migrado {
-  if (reasoning === undefined)
-    {return { actor: { model }, nota: heredado ? `OMO heredaba "${heredado}"; sin herencia: default del proveedor` : undefined }}
-  if (reasoning === 'auto') {return { actor: { model }, nota: `OMO "auto" = sin variant` }}
+  if (reasoning === undefined) {
+    return { actor: { model }, nota: heredado ? `OMO heredaba "${heredado}"; sin herencia: default del proveedor` : undefined }
+  }
+
+  if (reasoning === 'auto') {
+    return { actor: { model }, nota: `OMO "auto" = sin variant` }
+  }
+
   const variants = catalog.get(model)
 
-  if (!variants) {return { actor: { model, variant: reasoning }, nota: 'REVISAR: el modelo no está en el catálogo' }}
-  if (variants.includes(reasoning)) {return { actor: { model, variant: reasoning } }}
-  if (!variants.length)
-    {return { actor: { model }, nota: `OMO "${reasoning}"; el modelo no tiene variants: default del proveedor` }}
+  if (!variants) {
+    return { actor: { model, variant: reasoning }, nota: 'REVISAR: el modelo no está en el catálogo' }
+  }
+
+  if (variants.includes(reasoning)) {
+    return { actor: { model, variant: reasoning } }
+  }
+
+  if (!variants.length) {
+    return { actor: { model }, nota: `OMO "${reasoning}"; el modelo no tiene variants: default del proveedor` }
+  }
+
   const wanted = scale.indexOf(reasoning === 'off' ? 'none' : reasoning)
-  const candidates = variants.filter((v) => scale.includes(v))
+  const candidates = variants.filter((variant) => scale.includes(variant))
 
   // A model with variants off the scale (MiniMax: none/thinking) has no meaningful "closest"
-  if (wanted === -1 || candidates.length < variants.length)
-    {return {
+  if (wanted === -1 || candidates.length < variants.length) {
+    return {
       actor: { model, variant: reasoning },
       nota: `REVISAR: "${reasoning}" no está en el catálogo (${variants.join(', ')})`,
-    }}
+    }
+  }
+
   // Closest by distance on the scale; on a tie, the higher one
-  const closest = candidates.reduce((best, v) => {
-    const d = Math.abs(scale.indexOf(v) - wanted),
+  const closest = candidates.reduce((best, variant) => {
+    const distancia = Math.abs(scale.indexOf(variant) - wanted),
       db = Math.abs(scale.indexOf(best) - wanted)
 
-    return d < db || (d === db && scale.indexOf(v) > scale.indexOf(best)) ? v : best
+    return distancia < db || (distancia === db && scale.indexOf(variant) > scale.indexOf(best)) ? variant : best
   })
 
   return {
@@ -76,26 +91,32 @@ export function migrarActor(model: string, reasoning: string | undefined, catalo
 }
 
 export function migrarReparto(omo: OmoReparto, catalog: Catalog, esCategoria: boolean): Migrado[] {
-  const entries = (omo.models ?? []).map((e) => (typeof e === 'string' ? { model: e, reasoning: undefined } : e))
+  const entries = (omo.models ?? []).map((entrada) =>
+    typeof entrada === 'string' ? { model: entrada, reasoning: undefined } : entrada,
+  )
   // Agents: model + reasoning is the titular and `models` lists the chain. Categories: models[0] is the titular.
   // In OMO an entry without reasoning inherits the agent's, or models[0]'s in a category.
   const heredado = esCategoria ? entries[0]?.reasoning : omo.reasoning
   const cadena = omo.model ? [{ model: omo.model, reasoning: omo.reasoning }, ...entries] : entries
   const vistos = new Set<string>()
 
-  return cadena.flatMap((e) => {
-    const clave = `${e.model}#${e.reasoning ?? heredado}`
+  return cadena.flatMap((entrada) => {
+    const clave = `${entrada.model}#${entrada.reasoning ?? heredado}`
 
-    if (vistos.has(clave)) {return []}
+    if (vistos.has(clave)) {
+      return []
+    }
+
     vistos.add(clave)
 
-    return [migrarActor(e.model, e.reasoning, catalog, heredado)]
+    return [migrarActor(entrada.model, entrada.reasoning, catalog, heredado)]
   })
 }
 
-const actorJson = (a: Actor) =>
-  `{ "model": ${JSON.stringify(a.model)}${a.variant ? `, "variant": ${JSON.stringify(a.variant)}` : ''} }`
-const linea = (m: Migrado, coma: boolean) => `${actorJson(m.actor)}${coma ? ',' : ''}${m.nota ? ` // ${m.nota}` : ''}`
+const actorJson = (actor: Actor) =>
+  `{ "model": ${JSON.stringify(actor.model)}${actor.variant ? `, "variant": ${JSON.stringify(actor.variant)}` : ''} }`
+const linea = (migrado: Migrado, coma: boolean) =>
+  `${actorJson(migrado.actor)}${coma ? ',' : ''}${migrado.nota ? ` // ${migrado.nota}` : ''}`
 
 function bloque(nombre: string, migrados: Migrado[], ultimo: boolean, origen: string): string {
   const [titular, ...suplentes] = migrados
@@ -107,7 +128,7 @@ function bloque(nombre: string, migrados: Migrado[], ultimo: boolean, origen: st
 
   if (suplentes.length) {
     out.push(`      "suplentes": [`)
-    suplentes.forEach((s, i) => out.push(`        ${linea(s, i < suplentes.length - 1)}`))
+    suplentes.forEach((suplente, indice) => out.push(`        ${linea(suplente, indice < suplentes.length - 1)}`))
     out.push(`      ]`)
   }
 
@@ -123,12 +144,13 @@ export function migrar(omo: Omo, catalog: Catalog, schema: string): string {
   for (const [omoName, nombre] of Object.entries(agentes)) {
     agentesOut.push([nombre, migrarReparto(src.agents[omoName]!, catalog, false), `OMO: ${omoName}`])
 
-    if (nombre === 'director')
-      {agentesOut.push([
+    if (nombre === 'director') {
+      agentesOut.push([
         'build',
         migrarReparto(src.agents[omoName]!, catalog, false),
         `OMO: ${omoName} (build toma el reparto del director)`,
-      ])}
+      ])
+    }
   }
 
   const papelesOut = Object.entries(papeles).map(
@@ -143,14 +165,21 @@ export function migrar(omo: Omo, catalog: Catalog, schema: string): string {
     `{`,
     `  "$schema": ${JSON.stringify(schema)},`,
     `  "agentes": {`,
-    agentesOut.map(([n, m, o], i) => bloque(n, m, i === agentesOut.length - 1, o)).join('\n'),
+    agentesOut
+      .map(([nombre, modelo, origen], indice) => bloque(nombre, modelo, indice === agentesOut.length - 1, origen))
+      .join('\n'),
     `  },`,
     `  "papeles": {`,
-    papelesOut.map(([n, m, o], i) => bloque(n, m, i === papelesOut.length - 1, o)).join('\n'),
+    papelesOut
+      .map(([nombre, modelo, origen], indice) => bloque(nombre, modelo, indice === papelesOut.length - 1, origen))
+      .join('\n'),
     `  },`,
     `  "proveedores": {`,
     concurrencia
-      .map(([id, n], i) => `    ${JSON.stringify(id)}: { "concurrencia": ${n} }${i < concurrencia.length - 1 ? ',' : ''}`)
+      .map(
+        ([id, numero], indice) =>
+          `    ${JSON.stringify(id)}: { "concurrencia": ${numero} }${indice < concurrencia.length - 1 ? ',' : ''}`,
+      )
       .join('\n'),
     `  }`,
     `}`,
@@ -161,12 +190,17 @@ export function migrar(omo: Omo, catalog: Catalog, schema: string): string {
 if (import.meta.main) {
   const [omoPath, catalogPath] = process.argv.slice(2)
 
-  if (!omoPath || !catalogPath) {throw new Error('uso: migrate-omo.ts <omo.jsonc> <model.list.json>')}
+  if (!omoPath || !catalogPath) {
+    throw new Error('uso: migrate-omo.ts <omo.jsonc> <model.list.json>')
+  }
+
   const omo = Bun.JSONC.parse(await Bun.file(omoPath).text()) as Omo
   const list = (await Bun.file(catalogPath).json()) as {
     data: { providerID: string; id: string; variants: { id: string }[] }[]
   }
-  const catalog: Catalog = new Map(list.data.map((m) => [`${m.providerID}/${m.id}`, m.variants.map((v) => v.id)]))
+  const catalog: Catalog = new Map(
+    list.data.map((modelo) => [`${modelo.providerID}/${modelo.id}`, modelo.variants.map((variant) => variant.id)]),
+  )
 
   process.stdout.write(migrar(omo, catalog, new URL('../schema/reparto.schema.json', import.meta.url).pathname))
 }

@@ -2,7 +2,7 @@
 // Reads /tmp/reparto-dev/faults.json: [{ "providerID": "claude-code", "agent"?: "visual", "kind": "claude-limit", "remaining": 1 }]
 // And replaces a `primary` response (http.response) or WebSocket frame (openai) with the error bodies seen in the S3 probes.
 // It must be listed before reparto in `plugins` so reparto's hooks see the replaced response.
-import { appendFileSync } from 'node:fs'
+import { appendFileSync, readFileSync, writeFileSync } from 'node:fs'
 
 import { Plugin } from '@opencode/plugin'
 
@@ -20,24 +20,30 @@ function take(providerID: string, agent: string): Kind | undefined {
   let faults: Fault[]
 
   try {
-    faults = JSON.parse(require('node:fs').readFileSync(file, 'utf8'))
+    faults = JSON.parse(readFileSync(file, 'utf8'))
   } catch {
     return
   }
 
-  const fault = faults.find((f) => f.providerID === providerID && (!f.agent || f.agent === agent) && f.remaining > 0)
+  const fault = faults.find(
+    (entrada) => entrada.providerID === providerID && (!entrada.agent || entrada.agent === agent) && entrada.remaining > 0,
+  )
 
-  if (!fault) {return}
+  if (!fault) {
+    return
+  }
+
   fault.remaining--
-  require('node:fs').writeFileSync(file, JSON.stringify(faults, null, 2))
+  writeFileSync(file, JSON.stringify(faults, null, 2))
   appendFileSync('/tmp/reparto-dev/faults.log', `${new Date().toISOString()} ${providerID} ${agent} ${fault.kind}\n`)
 
   return fault.kind
 }
 
+const json = (status: number, body: unknown, headers: Record<string, string> = {}) =>
+  Response.json(body, { status, headers: { 'content-type': 'application/json;charset=utf-8', ...headers } })
+
 function response(kind: Kind): Response {
-  const json = (status: number, body: unknown, headers: Record<string, string> = {}) =>
-    new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json;charset=utf-8', ...headers } })
   const resetsAt = new Date(Date.now() + 3 * 60_000).toISOString()
 
   switch (kind) {
@@ -50,6 +56,7 @@ function response(kind: Kind): Response {
         },
       })
     }
+
     case 'claude-limit': {
       return json(
         429,
@@ -65,6 +72,7 @@ function response(kind: Kind): Response {
         { 'retry-after': '180', 'x-claude-rate-limit-reset': resetsAt },
       )
     }
+
     case 'rate': {
       return json(
         429,
@@ -72,9 +80,11 @@ function response(kind: Kind): Response {
         { 'retry-after': '2' },
       )
     }
+
     case '503': {
       return json(503, { error: { message: 'Service Unavailable', type: 'server_error' } })
     }
+
     default: {
       return json(401, { error: { message: 'Invalid API key', type: 'authentication_error', code: 'invalid_api_key' } })
     }
@@ -101,17 +111,27 @@ const openaiQuotaFrame = () => {
 export default Plugin.define({
   id: 'reparto-fault',
   setup: async (ctx) => {
-    await ctx.session.hook('http.response', (x) => {
-      if (x.kind !== 'primary') {return}
-      const kind = take(String(x.model.providerID), String(x.agent))
+    await ctx.session.hook('http.response', (request) => {
+      if (request.kind !== 'primary') {
+        return
+      }
 
-      if (kind) {x.response = response(kind)}
+      const kind = take(String(request.model.providerID), String(request.agent))
+
+      if (kind) {
+        request.response = response(kind)
+      }
     })
-    await ctx.session.hook('experimental.ws.receive', (x) => {
-      if (x.kind !== 'primary') {return}
-      const kind = take(String(x.model.providerID), String(x.agent))
+    await ctx.session.hook('experimental.ws.receive', (request) => {
+      if (request.kind !== 'primary') {
+        return
+      }
 
-      if (kind) {x.frame = openaiQuotaFrame()}
+      const kind = take(String(request.model.providerID), String(request.agent))
+
+      if (kind) {
+        request.frame = openaiQuotaFrame()
+      }
     })
   },
 })

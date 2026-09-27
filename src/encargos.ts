@@ -58,10 +58,10 @@ const CONCURRENCIA = 3
 const recortar = (texto: string, tope: number) =>
   texto.length > tope ? `${texto.slice(0, tope)}\n[… recortado, ${texto.length - tope} caracteres más]` : texto
 
-export function tituloEncargo(a: string, prompt: string): string {
+export function tituloEncargo(agente: string, prompt: string): string {
   const resumen = (prompt.split('\n').find((linea) => linea.trim()) ?? '').trim().replace(/\s+/g, ' ')
 
-  return `${a} · ${resumen.length > 60 ? `${resumen.slice(0, 60)}…` : resumen}`
+  return `${agente} · ${resumen.length > 60 ? `${resumen.slice(0, 60)}…` : resumen}`
 }
 
 // ---------- Proceso dueño de un encargo (ADR 0010): boot_id + pid + starttime, porque el pid solo se reusa ----------
@@ -80,8 +80,8 @@ function starttime(pid: number): string | undefined {
 }
 
 export const yo = { boot_id: bootId, pid: process.pid, starttime: starttime(process.pid) ?? '' }
-export const vivo = (e: Pick<Encargo, 'boot_id' | 'pid' | 'starttime'>) =>
-  e.boot_id === bootId && starttime(e.pid) === e.starttime
+export const vivo = (encargo: Pick<Encargo, 'boot_id' | 'pid' | 'starttime'>) =>
+  encargo.boot_id === bootId && starttime(encargo.pid) === encargo.starttime
 
 // ---------- Filas ----------
 
@@ -90,23 +90,23 @@ export const leer = (id: number) => db().query('SELECT * FROM encargos WHERE id 
 type Cambios = Partial<Pick<Encargo, 'desde' | 'cerrado' | 'mensaje_final' | 'error' | 'aviso_pendiente'>>
 
 /** Transición atómica: solo la instancia que obtiene `changes = 1` sigue (y avisa). */
-export function transicion(e: Encargo, a: Estado, cambios: Cambios = {}): boolean {
-  if (!permitidas[e.estado].includes(a)) {
-    log.error('transición no permitida', { id: e.id, de: e.estado, a })
+export function transicion(encargo: Encargo, estado: Estado, cambios: Cambios = {}): boolean {
+  if (!permitidas[encargo.estado].includes(estado)) {
+    log.error('transición no permitida', { id: encargo.id, de: encargo.estado, a: estado })
 
     return false
   }
 
   const sets = Object.keys(cambios)
-    .map((k) => `, ${k} = $${k}`)
+    .map((clave) => `, ${clave} = $${clave}`)
     .join('')
-  const r = write(db(), `encargo ${e.id}: ${e.estado} → ${a}`, () =>
+  const resultado = write(db(), `encargo ${encargo.id}: ${encargo.estado} → ${estado}`, () =>
     db()
       .query(`UPDATE encargos SET estado = $a${sets} WHERE id = $id AND estado = $de`)
-      .run({ a, id: e.id, de: e.estado, ...cambios }),
+      .run({ a: estado, id: encargo.id, de: encargo.estado, ...cambios }),
   )
 
-  return r?.changes === 1
+  return resultado?.changes === 1
 }
 
 /** Un evento o un outcome cuenta para la fila solo si es posterior a `desde`: el `outcome` es el de la última ejecución de la sesión. */
@@ -117,34 +117,47 @@ export const posterior = (instante: number | undefined, desde: number | null) =>
 
 function cola(proveedor: string) {
   proceso.colas ??= new Map()
-  let c = proceso.colas.get(proveedor)
+  let cupo = proceso.colas.get(proveedor)
 
-  if (!c) {proceso.colas.set(proveedor, (c = { corriendo: 0, espera: [] }))}
-  return c
+  if (!cupo) {
+    proceso.colas.set(proveedor, (cupo = { corriendo: 0, espera: [] }))
+  }
+
+  return cupo
 }
 
 async function tomarCupo(proveedor: string, limite: number, id: number) {
-  const c = cola(proveedor)
+  const cupo = cola(proveedor)
 
-  if (c.corriendo >= limite) {
-    log.info('cola: en espera', { proveedor, id, corriendo: c.corriendo, limite, enEspera: c.espera.length + 1 })
-    await new Promise<void>((resolve) => c.espera.push(resolve))
-  } else {c.corriendo++
-  ;}(proceso.cupos ??= new Map()).set(id, proveedor)
-  log.info('cola: corre', { proveedor, id, corriendo: c.corriendo, limite, enEspera: c.espera.length })
+  if (cupo.corriendo >= limite) {
+    log.info('cola: en espera', { proveedor, id, corriendo: cupo.corriendo, limite, enEspera: cupo.espera.length + 1 })
+    await new Promise<void>((resolve) => cupo.espera.push(resolve))
+  } else {
+    cupo.corriendo++
+  }
+
+  ;(proceso.cupos ??= new Map()).set(id, proveedor)
+  log.info('cola: corre', { proveedor, id, corriendo: cupo.corriendo, limite, enEspera: cupo.espera.length })
 }
 
 function soltarCupo(id: number) {
   const proveedor = proceso.cupos?.get(id)
 
-  if (!proveedor) {return}
-  proceso.cupos!.delete(id)
-  const c = cola(proveedor)
-  const siguiente = c.espera.shift()
+  if (!proveedor) {
+    return
+  }
 
-  if (siguiente) {siguiente()}
-  else {c.corriendo--}
-  log.info('cola: libera', { proveedor, id, corriendo: c.corriendo, enEspera: c.espera.length })
+  proceso.cupos!.delete(id)
+  const cupo = cola(proveedor)
+  const siguiente = cupo.espera.shift()
+
+  if (siguiente) {
+    siguiente()
+  } else {
+    cupo.corriendo--
+  }
+
+  log.info('cola: libera', { proveedor, id, corriendo: cupo.corriendo, enEspera: cupo.espera.length })
 }
 
 /**
@@ -155,16 +168,21 @@ function soltarCupo(id: number) {
 export function moverCupo(id: number, proveedor: string, limite: number) {
   const anterior = proceso.cupos?.get(id)
 
-  if (!anterior || anterior === proveedor) {return}
-  soltarCupo(id)
-  const c = cola(proveedor)
+  if (!anterior || anterior === proveedor) {
+    return
+  }
 
-  c.corriendo++
+  soltarCupo(id)
+  const cupo = cola(proveedor)
+
+  cupo.corriendo++
   proceso.cupos!.set(id, proveedor)
 
-  if (c.corriendo > limite)
-    {log.warn('cola: exceso por suplencia', { id, de: anterior, a: proveedor, corriendo: c.corriendo, limite })}
-  else {log.info('cola: cupo movido', { id, de: anterior, a: proveedor, corriendo: c.corriendo, limite })}
+  if (cupo.corriendo > limite) {
+    log.warn('cola: exceso por suplencia', { id, de: anterior, a: proveedor, corriendo: cupo.corriendo, limite })
+  } else {
+    log.info('cola: cupo movido', { id, de: anterior, a: proveedor, corriendo: cupo.corriendo, limite })
+  }
 }
 
 export const abiertos = () => (proceso.abiertos ??= new Map())
@@ -183,46 +201,58 @@ interface Entrada {
 }
 
 function parsear(input: unknown): Entrada {
-  const x = (input ?? {}) as Record<string, unknown>
+  const entrada = (input ?? {}) as Record<string, unknown>
 
-  if (typeof x.prompt !== 'string' || !x.prompt.trim()) {throw new Error('delegar: falta `prompt`')}
-  if (x.sesion === undefined && typeof x.a !== 'string') {throw new Error('delegar: falta `a` (o `sesion` para retomar)')}
+  if (typeof entrada.prompt !== 'string' || !entrada.prompt.trim()) {
+    throw new Error('delegar: falta `prompt`')
+  }
+
+  if (entrada.sesion === undefined && typeof entrada.a !== 'string') {
+    throw new Error('delegar: falta `a` (o `sesion` para retomar)')
+  }
+
   return {
-    a: typeof x.a === 'string' ? x.a : undefined,
-    prompt: x.prompt,
-    background: x.background === true,
-    sesion: typeof x.sesion === 'string' ? x.sesion : undefined,
-    skills: Array.isArray(x.skills) ? x.skills.filter((s): s is string => typeof s === 'string') : undefined,
+    a: typeof entrada.a === 'string' ? entrada.a : undefined,
+    prompt: entrada.prompt,
+    background: entrada.background === true,
+    sesion: typeof entrada.sesion === 'string' ? entrada.sesion : undefined,
+    skills: Array.isArray(entrada.skills)
+      ? entrada.skills.filter((skill): skill is string => typeof skill === 'string')
+      : undefined,
   }
 }
 
-const etiquetaRef = (m: { providerID: string; id: string; variant?: string } | undefined) =>
-  m ? etiqueta({ model: `${m.providerID}/${m.id}`, variant: m.variant }) : 'desconocido'
+const etiquetaRef = (modelo: { providerID: string; id: string; variant?: string } | undefined) =>
+  modelo ? etiqueta({ model: `${modelo.providerID}/${modelo.id}`, variant: modelo.variant }) : 'desconocido'
 
-export function textoAviso(e: Encargo, ultimoActor: string, titulo: string): string {
-  const cabeza = `[reparto] ${titulo} — ${e.estado} (${e.hija})`
+export function textoAviso(encargo: Encargo, ultimoActor: string, titulo: string): string {
+  const cabeza = `[reparto] ${titulo} — ${encargo.estado} (${encargo.hija})`
   const suplente =
-    ultimoActor.replace(/#default$/, '') !== e.actor.replace(/#default$/, '')
-      ? `\nentró como suplente en lugar de ${e.actor}.`
+    ultimoActor.replace(/#default$/, '') !== encargo.actor.replace(/#default$/, '')
+      ? `\nentró como suplente en lugar de ${encargo.actor}.`
       : ''
-  const pista = `(bitacora({ id: "${e.hija}" }) para el resto)`
+  const pista = `(bitacora({ id: "${encargo.hija}" }) para el resto)`
 
-  switch (e.estado) {
+  switch (encargo.estado) {
     case 'terminado': {
-      return `${cabeza}\n\n${recortar(e.mensaje_final ?? '', TOPE_AVISO_VISIBLE)}${suplente}\n${pista}`
+      return `${cabeza}\n\n${recortar(encargo.mensaje_final ?? '', TOPE_AVISO_VISIBLE)}${suplente}\n${pista}`
     }
+
     case 'fallido': {
-      return `${cabeza}\n\nError: ${recortar(e.error ?? 'la ejecución falló', 120)}. Último actor: ${ultimoActor}.${suplente}${e.mensaje_final ? `\nÚltimo mensaje: ${recortar(e.mensaje_final, TOPE_AVISO_VISIBLE)}` : ''}\n${pista}`
+      return `${cabeza}\n\nError: ${recortar(encargo.error ?? 'la ejecución falló', 120)}. Último actor: ${ultimoActor}.${suplente}${encargo.mensaje_final ? `\nÚltimo mensaje: ${recortar(encargo.mensaje_final, TOPE_AVISO_VISIBLE)}` : ''}\n${pista}`
     }
+
     case 'interrumpido': {
       return `${cabeza}\n\nInterrumpido antes de completar el encargo.${suplente}\n${pista}`
     }
+
     case 'estancado': {
       return `${cabeza}\n\nSin actividad desde hace ${PLAZO_ESTANCADO / 60_000} min. Sigue abierto; decide si lo interrumpes.${suplente}\n${pista}`
     }
+
     case 'en_cola':
     case 'corriendo': {
-      throw new Error(`aviso para encargo abierto: ${e.estado}`)
+      throw new Error(`aviso para encargo abierto: ${encargo.estado}`)
     }
   }
 }
@@ -266,48 +296,63 @@ export function encargos(ctx: Ctx, config: Config) {
   async function mensajeFinal(hija: string): Promise<string | undefined> {
     const mensajes = await ctx.session.context({ sessionID: hija })
 
-    for (const m of [...mensajes].reverse()) {
-      if (m.type !== 'assistant') {continue}
-      const texto = m.content
+    for (const mensaje of mensajes.toReversed()) {
+      if (mensaje.type !== 'assistant') {
+        continue
+      }
+
+      const texto = mensaje.content
         .flatMap((parte) => (parte.type === 'text' ? [parte.text] : []))
         .join('\n')
         .trim()
 
-      if (texto) {return texto}
+      if (texto) {
+        return texto
+      }
     }
   }
 
-  async function avisar(e: Encargo, ultimoActor: string) {
+  async function avisar(encargo: Encargo, ultimoActor: string) {
     try {
-      const hija = await ctx.session.get({ sessionID: e.hija })
+      const hija = await ctx.session.get({ sessionID: encargo.hija })
 
       await ctx.session.prompt({
-        sessionID: e.padre,
-        text: textoAviso(e, ultimoActor, hija.title ?? e.hija),
+        sessionID: encargo.padre,
+        text: textoAviso(encargo, ultimoActor, hija.title ?? encargo.hija),
         delivery: 'queue',
         metadata: { repartoAviso: true },
       })
-      write(db(), 'aviso enviado', () => db().query('UPDATE encargos SET aviso_pendiente = 0 WHERE id = $id').run({ id: e.id }))
-      log.info('aviso', { id: e.id, hija: e.hija, padre: e.padre, estado: e.estado })
+      write(db(), 'aviso enviado', () =>
+        db().query('UPDATE encargos SET aviso_pendiente = 0 WHERE id = $id').run({ id: encargo.id }),
+      )
+      log.info('aviso', { id: encargo.id, hija: encargo.hija, padre: encargo.padre, estado: encargo.estado })
     } catch (error) {
-      log.error('aviso falló', { id: e.id, padre: e.padre, error: String(error) })
+      log.error('aviso falló', { id: encargo.id, padre: encargo.padre, error: String(error) })
     }
   }
 
   /** Cómo cerró la última ejecución, si es posterior a `desde`; undefined si todavía corre. */
-  async function cierre(e: Encargo, errorEvento?: string) {
-    const s = await ctx.session.get({ sessionID: e.hija })
+  async function cierre(encargo: Encargo, errorEvento?: string) {
+    const sesion = await ctx.session.get({ sessionID: encargo.hija })
 
-    if (!s.outcome || !posterior(s.time.idle, e.desde)) {return}
-    const ultimoActor = etiquetaRef(s.model)
+    if (!sesion.outcome || !posterior(sesion.time.idle, encargo.desde)) {
+      return
+    }
 
-    if (s.outcome === 'interrupted') {return { estado: 'interrumpido' as const, ultimoActor }}
-    const mensaje = await mensajeFinal(e.hija)
+    const ultimoActor = etiquetaRef(sesion.model)
 
-    if (s.outcome === 'succeeded')
-      {return mensaje
+    if (sesion.outcome === 'interrupted') {
+      return { estado: 'interrumpido' as const, ultimoActor }
+    }
+
+    const mensaje = await mensajeFinal(encargo.hija)
+
+    if (sesion.outcome === 'succeeded') {
+      return mensaje
         ? { estado: 'terminado' as const, mensaje, ultimoActor }
-        : { estado: 'fallido' as const, error: 'terminó sin salida', ultimoActor }}
+        : { estado: 'fallido' as const, error: 'terminó sin salida', ultimoActor }
+    }
+
     return { estado: 'fallido' as const, mensaje, error: errorEvento ?? 'la ejecución falló', ultimoActor }
   }
 
@@ -315,33 +360,57 @@ export function encargos(ctx: Ctx, config: Config) {
   async function cerrar(id: number, evento?: { created: number; error?: string }) {
     proceso.cerrando ??= new Set()
 
-    if (proceso.cerrando.has(id)) {return}
+    if (proceso.cerrando.has(id)) {
+      return
+    }
+
     proceso.cerrando.add(id)
 
     try {
-      const e = leer(id)
+      const encargo = leer(id)
 
-      if (!e || (e.estado !== 'corriendo' && e.estado !== 'estancado')) {return}
-      // El cierre de una ejecución anterior de la misma hija, procesado tarde, no toca la fila retomada
-      if (evento && !posterior(evento.created, e.desde)) {return}
-      const c = await cierre(e, evento?.error)
-
-      if (!c) {return}
-      const cambios = {
-        cerrado: Date.now(),
-        mensaje_final: c.mensaje ?? null,
-        error: c.error ?? null,
-        aviso_pendiente: e.background,
+      if (!encargo || (encargo.estado !== 'corriendo' && encargo.estado !== 'estancado')) {
+        return
       }
 
-      if (!transicion(e, c.estado, cambios)) {return}
-      soltarCupo(e.id)
-      abiertos().delete(e.hija)
-      const cerrado = { ...e, ...cambios, estado: c.estado }
+      // El cierre de una ejecución anterior de la misma hija, procesado tarde, no toca la fila retomada
+      if (evento && !posterior(evento.created, encargo.desde)) {
+        return
+      }
 
-      log.info('encargo cerrado', { id, hija: e.hija, a: e.a, estado: c.estado, error: c.error, actor: c.ultimoActor })
+      const cierreActual = await cierre(encargo, evento?.error)
 
-      if (e.background) {await avisar(cerrado, c.ultimoActor)}
+      if (!cierreActual) {
+        return
+      }
+
+      const cambios = {
+        cerrado: Date.now(),
+        mensaje_final: cierreActual.mensaje ?? null,
+        error: cierreActual.error ?? null,
+        aviso_pendiente: encargo.background,
+      }
+
+      if (!transicion(encargo, cierreActual.estado, cambios)) {
+        return
+      }
+
+      soltarCupo(encargo.id)
+      abiertos().delete(encargo.hija)
+      const cerrado = { ...encargo, ...cambios, estado: cierreActual.estado }
+
+      log.info('encargo cerrado', {
+        id,
+        hija: encargo.hija,
+        a: encargo.a,
+        estado: cierreActual.estado,
+        error: cierreActual.error,
+        actor: cierreActual.ultimoActor,
+      })
+
+      if (encargo.background) {
+        await avisar(cerrado, cierreActual.ultimoActor)
+      }
     } catch (error) {
       log.error('cierre falló', { id, error: String(error) })
     } finally {
@@ -354,22 +423,22 @@ export function encargos(ctx: Ctx, config: Config) {
     const inicial = leer(id)!
 
     await tomarCupo(inicial.actor.split('/')[0]!, limite(inicial.actor.split('/')[0]!), id)
-    const e = leer(id)!
+    const encargo = leer(id)!
     const desde = Date.now()
 
-    if (e.estado !== 'en_cola' || !transicion(e, 'corriendo', { desde })) {
+    if (encargo.estado !== 'en_cola' || !transicion(encargo, 'corriendo', { desde })) {
       soltarCupo(id)
 
       return false
     }
 
-    abiertos().set(e.hija, { id, actividad: desde })
+    abiertos().set(encargo.hija, { id, actividad: desde })
 
     try {
       await ctx.session.prompt({
-        sessionID: e.hija,
+        sessionID: encargo.hija,
         text: prompt,
-        ...(skills?.length ? { skills: skills.map((s) => ({ id: s })) } : {}),
+        ...(skills?.length ? { skills: skills.map((skill) => ({ id: skill })) } : {}),
       })
 
       return true
@@ -380,13 +449,15 @@ export function encargos(ctx: Ctx, config: Config) {
         transicion(actual, 'fallido', {
           cerrado: Date.now(),
           error: `el prompt falló: ${String(error)}`,
-          aviso_pendiente: e.background,
+          aviso_pendiente: encargo.background,
         })
       ) {
         soltarCupo(id)
-        abiertos().delete(e.hija)
+        abiertos().delete(encargo.hija)
 
-        if (e.background) {await avisar({ ...actual, estado: 'fallido', error: `el prompt falló: ${String(error)}` }, e.actor)}
+        if (encargo.background) {
+          await avisar({ ...actual, estado: 'fallido', error: `el prompt falló: ${String(error)}` }, encargo.actor)
+        }
       }
 
       return false
@@ -397,14 +468,18 @@ export function encargos(ctx: Ctx, config: Config) {
     const args = parsear(input)
     const validacion = proceso.validacion
 
-    if (!validacion) {throw new Error('reparto todavía no validó los actores contra el catálogo; reintenta en unos segundos')}
+    if (!validacion) {
+      throw new Error('reparto todavía no validó los actores contra el catálogo; reintenta en unos segundos')
+    }
+
     const padre = await ctx.session.get({ sessionID: tool.sessionID })
 
-    if (padre.agent === 'regidor' && !planDeSesion(db(), tool.sessionID))
-      {throw new Error('regidor sin plan estrenado: usa /estreno <plan>')}
+    if (padre.agent === 'regidor' && !planDeSesion(db(), tool.sessionID)) {
+      throw new Error('regidor sin plan estrenado: usa /estreno <plan>')
+    }
 
     let hija: string
-    let a: string
+    let agente: string
     let actor: string
     let suplencia: string | undefined
 
@@ -413,29 +488,46 @@ export function encargos(ctx: Ctx, config: Config) {
         .query('SELECT * FROM encargos WHERE hija = $hija ORDER BY id DESC LIMIT 1')
         .get({ hija: args.sesion }) as Encargo | null
 
-      if (!previo) {throw new Error(`${args.sesion} no es un encargo de reparto`)}
-      if (!puedeDelegar(padre.agent, previo.a))
-        {throw new Error('dramaturgo solo delega investigación de lectura a utilero, archivista u oracle')}
-      const s = await ctx.session.get({ sessionID: args.sesion })
+      if (!previo) {
+        throw new Error(`${args.sesion} no es un encargo de reparto`)
+      }
 
-      hija = s.id
-      a = previo.a
-      actor = etiquetaRef(s.model)
+      if (!puedeDelegar(padre.agent, previo.a)) {
+        throw new Error('dramaturgo solo delega investigación de lectura a utilero, archivista u oracle')
+      }
+
+      const sesion = await ctx.session.get({ sessionID: args.sesion })
+
+      hija = sesion.id
+      agente = previo.a
+      actor = etiquetaRef(sesion.model)
     } else {
-      if (!destinos.has(args.a!) && !(actorElegido && args.a === 'critico'))
-        {throw new Error(`"${args.a}" no es un agente ni un papel al que se pueda delegar (${[...destinos].join(', ')})`)}
-      if (!actorElegido && !puedeDelegar(padre.agent, args.a!))
-        {throw new Error('dramaturgo solo delega investigación de lectura a utilero, archivista u oracle')}
-      if (!validacion.actores.has(args.a!)) {throw new Error(`"${args.a}" está desactivado: no tiene actores válidos`)}
+      if (!destinos.has(args.a!) && !(actorElegido && args.a === 'critico')) {
+        throw new Error(`"${args.a}" no es un agente ni un papel al que se pueda delegar (${[...destinos].join(', ')})`)
+      }
+
+      if (!actorElegido && !puedeDelegar(padre.agent, args.a!)) {
+        throw new Error('dramaturgo solo delega investigación de lectura a utilero, archivista u oracle')
+      }
+
+      if (!validacion.actores.has(args.a!)) {
+        throw new Error(`"${args.a}" está desactivado: no tiene actores válidos`)
+      }
+
       const bajas = bajasVigentes(db())
       const elegido = actorElegido ?? resolver(validacion, args.a!, deBaja(bajas))
 
-      if (!elegido)
-        {throw new Error(
-          `todos los actores de "${args.a}" están de baja: ${bajas.map((b) => `${b.id} hasta ${new Date(b.hasta).toISOString()}`).join(', ')}`,
-        )}
-      if (elegido !== validacion.actores.get(args.a!)![0]) {suplencia = `el titular está de baja; entra ${etiqueta(elegido)}`}
-      const s = await ctx.session.create({
+      if (!elegido) {
+        throw new Error(
+          `todos los actores de "${args.a}" están de baja: ${bajas.map((baja) => `${baja.id} hasta ${new Date(baja.hasta).toISOString()}`).join(', ')}`,
+        )
+      }
+
+      if (elegido !== validacion.actores.get(args.a!)![0]) {
+        suplencia = `el titular está de baja; entra ${etiqueta(elegido)}`
+      }
+
+      const sesion = await ctx.session.create({
         title: tituloEncargo(args.a!, args.prompt),
         agent: args.a,
         model: modelRef(elegido),
@@ -443,20 +535,30 @@ export function encargos(ctx: Ctx, config: Config) {
         metadata: { padre: tool.sessionID },
       })
 
-      hija = s.id
-      a = args.a!
+      hija = sesion.id
+      agente = args.a!
       actor = etiqueta(elegido)
     }
 
-    const fila = { hija, padre: tool.sessionID, a, actor, background: args.background ? 1 : 0, creado: Date.now(), ...yo }
+    const fila = {
+      hija,
+      padre: tool.sessionID,
+      a: agente,
+      actor,
+      background: args.background ? 1 : 0,
+      creado: Date.now(),
+      ...yo,
+    }
     // Chequeo e INSERT en la misma transacción IMMEDIATE: dos retomas simultáneas, aun desde procesos distintos, no pasan las dos.
     const id = write(db(), 'crear encargo', () => {
       if (
         db()
           .query("SELECT 1 FROM encargos WHERE hija = $hija AND estado IN ('en_cola', 'corriendo', 'estancado')")
           .get({ hija })
-      )
-        {return 0}
+      ) {
+        return 0
+      }
+
       db().query("UPDATE permisos SET estado = 'respondido' WHERE hija = $hija AND estado = 'pendiente'").run({ hija })
 
       return Number(
@@ -469,13 +571,19 @@ export function encargos(ctx: Ctx, config: Config) {
       )
     })
 
-    if (id === 0) {throw new Error(`encargo ya corriendo: ${hija}`)}
-    if (id === undefined) {throw new Error('no se pudo registrar el encargo (SQLite); ver el log de reparto')}
+    if (id === 0) {
+      throw new Error(`encargo ya corriendo: ${hija}`)
+    }
+
+    if (id === undefined) {
+      throw new Error('no se pudo registrar el encargo (SQLite); ver el log de reparto')
+    }
+
     log.info('encargo creado', {
       id,
       hija,
       padre: tool.sessionID,
-      a,
+      a: agente,
       actor,
       background: !!args.background,
       retoma: !!args.sesion,
@@ -487,19 +595,21 @@ export function encargos(ctx: Ctx, config: Config) {
       void correr(id, args.prompt, args.skills)
 
       return {
-        content: `Encargo ${hija} lanzado en background a ${a} (${actor})${nota}. Te llega un aviso cuando termine, falle, lo interrumpan o quede estancado; no hace falta consultarlo.`,
+        content: `Encargo ${hija} lanzado en background a ${agente} (${actor})${nota}. Te llega un aviso cuando termine, falle, lo interrumpan o quede estancado; no hace falta consultarlo.`,
         metadata: { encargo: id, hija },
       }
     }
 
     const interrumpir = () => {
-      const e = leer(id)
+      const encargo = leer(id)
 
-      if (e?.estado === 'en_cola') {transicion(e, 'fallido', { cerrado: Date.now(), error: 'cancelado antes de correr' })}
-      else
-        {void ctx.session
+      if (encargo?.estado === 'en_cola') {
+        transicion(encargo, 'fallido', { cerrado: Date.now(), error: 'cancelado antes de correr' })
+      } else {
+        void ctx.session
           .interrupt({ sessionID: hija })
-          .catch((error) => log.error('interrupt falló', { hija, error: String(error) }))}
+          .catch((error) => log.error('interrupt falló', { hija, error: String(error) }))
+      }
     }
 
     tool.signal.addEventListener('abort', interrumpir, { once: true })
@@ -511,117 +621,143 @@ export function encargos(ctx: Ctx, config: Config) {
       }
 
       // Otra instancia puede estar cerrando la misma fila a partir del evento: se espera su transición
-      for (let i = 0; i < 40 && isOpen(leer(id)); i++) {await Bun.sleep(250)}
+      for (let intento = 0; intento < 40 && isOpen(leer(id)); intento++) {
+        await Bun.sleep(250)
+      }
     } finally {
       tool.signal.removeEventListener('abort', interrumpir)
     }
 
-    const e = leer(id)!
+    const encargo = leer(id)!
 
-    if (isOpen(e))
-      {return {
-        content: `Encargo ${hija} (${a}) sigue ${e.estado}; te llega un aviso cuando cierre.`,
+    if (isOpen(encargo)) {
+      return {
+        content: `Encargo ${hija} (${agente}) sigue ${encargo.estado}; te llega un aviso cuando cierre.`,
         metadata: { encargo: id, hija },
-      }}
+      }
+    }
+
     write(db(), 'encargo sincrónico entregado', () =>
       db().query('UPDATE encargos SET aviso_pendiente = 0 WHERE id = $id').run({ id }),
     )
-    const cuerpo = e.estado === 'terminado' ? recortar(e.mensaje_final ?? '', TOPE_AVISO) : (e.error ?? e.estado)
+    const cuerpo =
+      encargo.estado === 'terminado' ? recortar(encargo.mensaje_final ?? '', TOPE_AVISO) : (encargo.error ?? encargo.estado)
 
     return {
-      content: `Encargo ${hija} (${a}, ${actor})${nota} ${e.estado}.\n\n${cuerpo}`,
-      metadata: { encargo: id, hija, estado: e.estado },
+      content: `Encargo ${hija} (${agente}, ${actor})${nota} ${encargo.estado}.\n\n${cuerpo}`,
+      metadata: { encargo: id, hija, estado: encargo.estado },
     }
   }
 
   /** Interrumpe un encargo abierto cuya hija tenga `metadata.padre` = la sesión que llama. */
   async function interrumpir(input: unknown, tool: ToolContext) {
-    const x = (input ?? {}) as { id?: unknown }
+    const entrada = (input ?? {}) as { id?: unknown }
 
-    if (typeof x.id !== 'string') {throw new Error('interrumpir: falta `id` (el id de la sesión hija)')}
-    const hija = x.id
-    const s = await ctx.session.get({ sessionID: hija }).catch(() => undefined)
+    if (typeof entrada.id !== 'string') {
+      throw new Error('interrumpir: falta `id` (el id de la sesión hija)')
+    }
 
-    if (!s || (s.parentID ?? s.metadata?.padre) !== tool.sessionID)
-      {throw new Error(`interrumpir: ${hija} no es un encargo de esta sesión; solo se pueden interrumpir los encargos propios`)}
-    if (s.parentID) {
+    const hija = entrada.id
+    const sesion = await ctx.session.get({ sessionID: hija }).catch(() => undefined)
+
+    if (!sesion || (sesion.parentID ?? sesion.metadata?.padre) !== tool.sessionID) {
+      throw new Error(`interrumpir: ${hija} no es un encargo de esta sesión; solo se pueden interrumpir los encargos propios`)
+    }
+
+    if (sesion.parentID) {
       await ctx.session.interrupt({ sessionID: hija })
       hijosNativos().delete(hija)
 
       return { content: `Encargo ${hija} interrumpido.`, metadata: { hija, estado: 'interrumpido' } }
     }
 
-    const e = db()
+    const encargo = db()
       .query("SELECT * FROM encargos WHERE hija = $hija AND estado IN ('en_cola', 'corriendo', 'estancado')")
       .get({ hija }) as Encargo | null
 
-    if (!e) {throw new Error(`interrumpir: ${hija} no tiene un encargo abierto`)}
-    if (e.estado === 'en_cola') {
-      // No llegó a correr: no hay ejecución que interrumpir, y en_cola solo puede pasar a corriendo o fallido
-      const cambios = { cerrado: Date.now(), error: 'interrumpido antes de correr', aviso_pendiente: e.background }
+    if (!encargo) {
+      throw new Error(`interrumpir: ${hija} no tiene un encargo abierto`)
+    }
 
-      if (transicion(e, 'fallido', cambios)) {
+    if (encargo.estado === 'en_cola') {
+      // No llegó a correr: no hay ejecución que interrumpir, y en_cola solo puede pasar a corriendo o fallido
+      const cambios = { cerrado: Date.now(), error: 'interrumpido antes de correr', aviso_pendiente: encargo.background }
+
+      if (transicion(encargo, 'fallido', cambios)) {
         abiertos().delete(hija)
 
-        if (e.background) {await avisar({ ...e, ...cambios, estado: 'fallido' }, e.actor)}
+        if (encargo.background) {
+          await avisar({ ...encargo, ...cambios, estado: 'fallido' }, encargo.actor)
+        }
       }
     } else {
       await ctx.session.interrupt({ sessionID: hija })
 
       // La transición a interrumpido y el aviso los hace cerrar(), a partir de session.execution.interrupted
-      for (let i = 0; i < 40 && isOpen(leer(e.id)); i++) {await Bun.sleep(250)}
-      if (isOpen(leer(e.id))) {await cerrar(e.id)}
+      for (let intento = 0; intento < 40 && isOpen(leer(encargo.id)); intento++) {
+        await Bun.sleep(250)
+      }
+
+      if (isOpen(leer(encargo.id))) {
+        await cerrar(encargo.id)
+      }
     }
 
-    const final = leer(e.id)!
+    const final = leer(encargo.id)!
 
-    log.info('interrupción pedida', { id: e.id, hija, por: tool.sessionID, estado: final.estado })
+    log.info('interrupción pedida', { id: encargo.id, hija, por: tool.sessionID, estado: final.estado })
 
     return {
-      content: `Encargo ${hija} (${e.a}): ${final.estado}${final.error ? ` (${final.error})` : ''}.`,
-      metadata: { encargo: e.id, hija, estado: final.estado },
+      content: `Encargo ${hija} (${encargo.a}): ${final.estado}${final.error ? ` (${final.error})` : ''}.`,
+      metadata: { encargo: encargo.id, hija, estado: final.estado },
     }
   }
 
   async function bitacora(input: unknown) {
-    const x = (input ?? {}) as { id?: unknown; detalle?: unknown }
+    const entrada = (input ?? {}) as { id?: unknown; detalle?: unknown }
 
-    if (typeof x.id !== 'string') {throw new Error('bitacora: falta `id` (el id de la sesión hija)')}
-    const e = db()
+    if (typeof entrada.id !== 'string') {
+      throw new Error('bitacora: falta `id` (el id de la sesión hija)')
+    }
+
+    const encargo = db()
       .query('SELECT * FROM encargos WHERE hija = $hija ORDER BY id DESC LIMIT 1')
-      .get({ hija: x.id }) as Encargo | null
-    const s = e ? undefined : await ctx.session.get({ sessionID: x.id }).catch(() => undefined)
+      .get({ hija: entrada.id }) as Encargo | null
+    const sesion = encargo ? undefined : await ctx.session.get({ sessionID: entrada.id }).catch(() => undefined)
 
-    if (!e && !s?.parentID) {throw new Error(`${x.id} no es un encargo de reparto`)}
-    const completo = x.detalle === 'completo'
+    if (!encargo && !sesion?.parentID) {
+      throw new Error(`${entrada.id} no es un encargo de reparto`)
+    }
+
+    const completo = entrada.detalle === 'completo'
     const llamadas = db()
       .query('SELECT tool, argumentos, resultado, estado FROM bitacora WHERE hija = $hija ORDER BY hora')
-      .all({ hija: x.id }) as {
+      .all({ hija: entrada.id }) as {
       tool: string
       argumentos: string
       resultado: string | null
       estado: string
     }[]
-    const lineas = llamadas.map((l) => {
-      const base = `- ${l.tool} ${argumentoClave(l.argumentos)}${l.estado === 'error' ? ' [error]' : ''}`
+    const lineas = llamadas.map((llamada) => {
+      const base = `- ${llamada.tool} ${argumentoClave(llamada.argumentos)}${llamada.estado === 'error' ? ' [error]' : ''}`
 
-      return completo && l.resultado ? `${base}\n  → ${l.resultado.replaceAll('\n', '\n    ')}` : base
+      return completo && llamada.resultado ? `${base}\n  → ${llamada.resultado.replaceAll('\n', '\n    ')}` : base
     })
 
     return {
       content: [
-        e
-          ? `Encargo ${e.hija} (${e.a}, ${e.actor}): ${e.estado}${e.error ? ` (${e.error})` : ''}.`
-          : `Encargo ${x.id} (${s?.agent}): ${s?.outcome ?? 'abierto'}.`,
+        encargo
+          ? `Encargo ${encargo.hija} (${encargo.a}, ${encargo.actor}): ${encargo.estado}${encargo.error ? ` (${encargo.error})` : ''}.`
+          : `Encargo ${entrada.id} (${sesion?.agent}): ${sesion?.outcome ?? 'abierto'}.`,
         `Tool calls (${llamadas.length}):`,
         lineas.join('\n') || '(ninguna)',
         `Mensaje final:`,
-        e?.mensaje_final ?? (s ? await mensajeFinal(x.id) : undefined) ?? '(todavía no hay)',
+        encargo?.mensaje_final ?? (sesion ? await mensajeFinal(entrada.id) : undefined) ?? '(todavía no hay)',
       ].join('\n\n'),
     }
   }
 
-  async function registrarLlamada(x: {
+  async function registrarLlamada(llamada: {
     tool: string
     sessionID: string
     messageID: string
@@ -631,18 +767,24 @@ export function encargos(ctx: Ctx, config: Config) {
     result?: { content?: unknown }
     error?: { message: string }
   }) {
-    if (!abiertos().has(x.sessionID)) {
-      const s = await ctx.session.get({ sessionID: x.sessionID }).catch(() => undefined)
+    if (!abiertos().has(llamada.sessionID)) {
+      const sesion = await ctx.session.get({ sessionID: llamada.sessionID }).catch(() => undefined)
 
-      if (!s?.parentID) {return}
+      if (!sesion?.parentID) {
+        return
+      }
     }
 
-    const resultado =
-      x.status === 'error'
-        ? (x.error?.message ?? '')
-        : (typeof x.result?.content === 'string'
-          ? x.result.content
-          : JSON.stringify(x.result?.content ?? ''))
+    let resultado: string
+
+    if (llamada.status === 'error') {
+      resultado = llamada.error?.message ?? ''
+    } else if (typeof llamada.result?.content === 'string') {
+      resultado = llamada.result.content
+    } else {
+      resultado = JSON.stringify(llamada.result?.content ?? '')
+    }
+
     write(db(), 'bitácora', () =>
       db()
         .query(
@@ -650,13 +792,13 @@ export function encargos(ctx: Ctx, config: Config) {
            VALUES ($hija, $mensaje, $llamada, $tool, $argumentos, $resultado, $estado, $hora)`,
         )
         .run({
-          hija: x.sessionID,
-          mensaje: x.messageID,
-          llamada: x.id,
-          tool: x.tool,
-          argumentos: JSON.stringify(x.input ?? {}),
+          hija: llamada.sessionID,
+          mensaje: llamada.messageID,
+          llamada: llamada.id,
+          tool: llamada.tool,
+          argumentos: JSON.stringify(llamada.input ?? {}),
           resultado: recortar(resultado, TOPE_RESULTADO),
-          estado: x.status,
+          estado: llamada.status,
           hora: Date.now(),
         }),
     )
@@ -682,10 +824,11 @@ export function encargos(ctx: Ctx, config: Config) {
         ev.type === 'session.execution.succeeded' ||
         ev.type === 'session.execution.failed' ||
         ev.type === 'session.execution.interrupted'
-      )
-        {hijosNativos().delete(data!.sessionID!)}
-      else if (ev.type === 'permission.asked') {nativo.permiso = true}
-      else if (ev.type === 'permission.replied') {
+      ) {
+        hijosNativos().delete(data!.sessionID!)
+      } else if (ev.type === 'permission.asked') {
+        nativo.permiso = true
+      } else if (ev.type === 'permission.replied') {
         nativo.permiso = false
         nativo.actividad = Date.now()
       } else if (/^session\.(step|tool|text|reasoning)\./.test(ev.type)) {
@@ -694,7 +837,10 @@ export function encargos(ctx: Ctx, config: Config) {
       }
     }
 
-    if (!abierto) {return}
+    if (!abierto) {
+      return
+    }
+
     if (
       ev.type === 'session.execution.succeeded' ||
       ev.type === 'session.execution.failed' ||
@@ -706,28 +852,40 @@ export function encargos(ctx: Ctx, config: Config) {
     }
 
     if (ev.type === 'permission.asked' && data?.id && data.action && data.resources && data.sessionID) {
-      const e = leer(abierto.id)
+      const encargo = leer(abierto.id)
 
-      if (!e || !isOpen(e)) {return}
+      if (!encargo || !isOpen(encargo)) {
+        return
+      }
+
       const { id, action, resources, sessionID } = data
 
       actividad()
 
-      if (registrarPermiso({ id, action, resources, sessionID }))
-        {void (async () => {
+      if (registrarPermiso({ id, action, resources, sessionID })) {
+        void (async () => {
           try {
-            const hija = await ctx.session.get({ sessionID: e.hija })
+            const hija = await ctx.session.get({ sessionID: encargo.hija })
+
             await ctx.session.prompt({
-              sessionID: e.padre,
-              text: textoPermiso(hija.title ?? e.hija, action, resources, id),
+              sessionID: encargo.padre,
+              text: textoPermiso(hija.title ?? encargo.hija, action, resources, id),
               delivery: 'queue',
               metadata: { repartoAviso: true },
             })
-            log.info('permiso avisado', { id: e.id, hija: e.hija, padre: e.padre, requestID: id })
+            log.info('permiso avisado', { id: encargo.id, hija: encargo.hija, padre: encargo.padre, requestID: id })
           } catch (error) {
-            log.error('aviso de permiso falló', { id: e.id, hija: e.hija, padre: e.padre, requestID: id, error: String(error) })
+            log.error('aviso de permiso falló', {
+              id: encargo.id,
+              hija: encargo.hija,
+              padre: encargo.padre,
+              requestID: id,
+              error: String(error),
+            })
           }
-        })()}
+        })()
+      }
+
       return
     }
 
@@ -744,17 +902,19 @@ export function encargos(ctx: Ctx, config: Config) {
       return
     }
 
-    if (/^session\.(step|tool|text|reasoning)\./.test(ev.type)) {actividad()}
+    if (/^session\.(step|tool|text|reasoning)\./.test(ev.type)) {
+      actividad()
+    }
 
     function actividad() {
       abierto.actividad = Date.now()
 
       if (abierto.estancado) {
-        const e = leer(abierto.id)
+        const encargo = leer(abierto.id)
 
-        if (e?.estado === 'estancado' && transicion(e, 'corriendo')) {
+        if (encargo?.estado === 'estancado' && transicion(encargo, 'corriendo')) {
           abierto.estancado = false
-          log.info('encargo reanudado', { id: e.id, hija: e.hija })
+          log.info('encargo reanudado', { id: encargo.id, hija: encargo.hija })
         }
       }
     }
@@ -764,7 +924,10 @@ export function encargos(ctx: Ctx, config: Config) {
     const ahora = Date.now()
 
     for (const [hija, nativo] of hijosNativos()) {
-      if (nativo.avisado || nativo.permiso || ahora - nativo.actividad < PLAZO_ESTANCADO) {continue}
+      if (nativo.avisado || nativo.permiso || ahora - nativo.actividad < PLAZO_ESTANCADO) {
+        continue
+      }
+
       nativo.avisado = true
 
       try {
@@ -780,13 +943,19 @@ export function encargos(ctx: Ctx, config: Config) {
     }
 
     for (const [hija, abierto] of abiertos()) {
-      if (abierto.estancado || ahora - abierto.actividad < PLAZO_ESTANCADO || permisoPendiente(hija)) {continue}
-      const e = leer(abierto.id)
+      if (abierto.estancado || ahora - abierto.actividad < PLAZO_ESTANCADO || permisoPendiente(hija)) {
+        continue
+      }
 
-      if (e?.estado !== 'corriendo' || !transicion(e, 'estancado')) {continue}
+      const encargo = leer(abierto.id)
+
+      if (encargo?.estado !== 'corriendo' || !transicion(encargo, 'estancado')) {
+        continue
+      }
+
       abierto.estancado = true
-      log.warn('encargo estancado', { id: e.id, hija })
-      await avisar({ ...e, estado: 'estancado' }, e.actor)
+      log.warn('encargo estancado', { id: encargo.id, hija })
+      await avisar({ ...encargo, estado: 'estancado' }, encargo.actor)
     }
   }
 
@@ -796,32 +965,37 @@ export function encargos(ctx: Ctx, config: Config) {
       .query("SELECT * FROM encargos WHERE estado IN ('en_cola', 'corriendo', 'estancado') OR aviso_pendiente = 1 ORDER BY id")
       .all() as Encargo[]
 
-    for (const e of filas) {
-      if (vivo(e)) {continue} // Es de un proceso vivo, con su cola intacta (S15)
+    for (const encargo of filas) {
+      if (vivo(encargo)) {
+        continue
+      } // Es de un proceso vivo, con su cola intacta (S15)
 
       try {
-        if (isOpen(e)) {
+        if (isOpen(encargo)) {
           // Desde otro proceso `wait` vuelve en el acto (S13): se mira el outcome, y solo si es posterior a `desde`
-          const c = e.estado === 'en_cola' ? undefined : await cierre(e).catch(() => undefined)
-          const estado = c?.estado ?? 'fallido'
+          const cierreActual = encargo.estado === 'en_cola' ? undefined : await cierre(encargo).catch(() => undefined)
+          const estado = cierreActual?.estado ?? 'fallido'
           const cambios = {
             cerrado: Date.now(),
-            mensaje_final: c?.mensaje ?? null,
-            error: c ? (c.error ?? null) : 'perdido en reinicio',
+            mensaje_final: cierreActual?.mensaje ?? null,
+            error: cierreActual ? (cierreActual.error ?? null) : 'perdido en reinicio',
             aviso_pendiente: 1,
           }
 
-          if (!transicion(e, estado, cambios)) {continue}
-          const cerrado = { ...e, ...cambios, estado }
+          if (!transicion(encargo, estado, cambios)) {
+            continue
+          }
 
-          log.info('encargo reconciliado', { id: e.id, hija: e.hija, estado, error: cambios.error })
-          await avisar(cerrado, c?.ultimoActor ?? e.actor)
+          const cerrado = { ...encargo, ...cambios, estado }
+
+          log.info('encargo reconciliado', { id: encargo.id, hija: encargo.hija, estado, error: cambios.error })
+          await avisar(cerrado, cierreActual?.ultimoActor ?? encargo.actor)
         } else {
-          log.info('aviso pendiente reenviado', { id: e.id, hija: e.hija, estado: e.estado })
-          await avisar(e, e.actor)
+          log.info('aviso pendiente reenviado', { id: encargo.id, hija: encargo.hija, estado: encargo.estado })
+          await avisar(encargo, encargo.actor)
         }
       } catch (error) {
-        log.error('reconciliación falló', { id: e.id, error: String(error) })
+        log.error('reconciliación falló', { id: encargo.id, error: String(error) })
       }
     }
   }
@@ -829,22 +1003,28 @@ export function encargos(ctx: Ctx, config: Config) {
   return { delegar, interrumpir, bitacora, registrarLlamada, evento, vigilar, reconciliar }
 }
 
-const isOpen = (e: Encargo | null) => !!e && (e.estado === 'en_cola' || e.estado === 'corriendo' || e.estado === 'estancado')
+const isOpen = (encargo: Encargo | null) =>
+  !!encargo && (encargo.estado === 'en_cola' || encargo.estado === 'corriendo' || encargo.estado === 'estancado')
 
 const clavesArgumento = ['command', 'pattern', 'filePath', 'path', 'query', 'url', 'a']
 
 export function argumentoClave(argumentos: string): string {
-  let x: unknown
+  let entrada: unknown
 
   try {
-    x = JSON.parse(argumentos)
+    entrada = JSON.parse(argumentos)
   } catch {
     return recortar(argumentos, 160)
   }
 
-  if (!x || typeof x !== 'object') {return ''}
-  const r = x as Record<string, unknown>
-  const clave = clavesArgumento.find((k) => typeof r[k] === 'string') ?? Object.keys(r).find((k) => typeof r[k] === 'string')
+  if (!entrada || typeof entrada !== 'object') {
+    return ''
+  }
 
-  return clave ? `${clave}=${recortar(String(r[clave]), 160).replaceAll('\n', ' ')}` : ''
+  const registro = entrada as Record<string, unknown>
+  const clave =
+    clavesArgumento.find((clave) => typeof registro[clave] === 'string') ??
+    Object.keys(registro).find((clave) => typeof registro[clave] === 'string')
+
+  return clave ? `${clave}=${recortar(String(registro[clave]), 160).replaceAll('\n', ' ')}` : ''
 }
