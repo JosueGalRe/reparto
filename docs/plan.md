@@ -247,7 +247,7 @@ Arranca solo después de un corte estable.
 
 - Se registra **regidor**: primario, con su guion y los mismos permisos y tools que el director, incluido `delegar` (ADR 0012).
 - Tu OK en el chat estrena el plan. `estrenos` guarda plan, hash y fecha, y solo acepta un hash que tenga los dos veredictos `aprobado` en `ensayos`. Si decides estrenar con objeciones abiertas (ronda 5 sin cierre), queda registrado como `estreno con objeciones`, con la lista.
-- El comando `/estreno <plan>` (S12) abre una sesión del regidor con el plan y siembra sus pendientes desde las tareas, atados a la versión del plan.
+- El comando `/estreno <plan>` (S12) convierte la sesión actual si aún no tiene mensajes; de lo contrario abre otra sesión del regidor con el plan. Siembra sus pendientes desde las tareas, atados a la versión del plan.
 - Continuación: si el regidor queda libre con tareas del plan sin terminar, reparto le pide seguir. Aplica solo en sesiones del regidor, y no cuando está esperando encargos en background ni después de que lo interrumpas tú.
 - **Escenarios:**
   - Si el archivo cambió después del estreno, `/estreno` se niega.
