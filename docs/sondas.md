@@ -86,6 +86,8 @@ queue: 15:47:24.899 inbox.enqueued · eco(dos) · eco(tres) · 15:47:41.530 step
 
 **Consecuencia.** El aviso de un encargo va con `session.synthetic({ delivery: "queue" })`, sin `resume`: dispara un turno si el padre está libre y, si está ocupado, espera al final sin desviar el trabajo. Hay que pasar `queue` explícitamente, porque el default es `steer`. Plan 1.6 actualizado.
 
+**Actualización 2.0.18.** `synthetic({ delivery: "queue", resume: false })` aislado en una sesión libre (`ses_f1ef40750ffesTJBgwB9bGxaqU`) no inició ejecución: `session.context` vacío, `session.get` sin `outcome` ni `time.idle`, tokens 0. El intento de enviarlo seguido inmediatamente de un `prompt` sí produjo dos turnos; el aviso usa ahora un único `session.prompt` visible.
+
 ---
 
 ## S2: `setup` que lanza

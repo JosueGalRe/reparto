@@ -10,6 +10,8 @@ reparto delega con una tool propia, `delegar`, y les niega el `subagent` nativo 
 
 El id de un encargo es el de su sesión hija, sin un segundo id como el `bg_…` de OMO. Cuando el encargo termina, el aviso trae su mensaje final. `bitacora` agrega las tool calls y, con detalle completo, sus resultados.
 
+El aviso al padre es un solo `session.prompt({ delivery: "queue" })`: cabecera visible, resultado recortado y pista de `bitacora` en texto plano. OpenChamber oculta y fusiona mensajes de usuario totalmente sintéticos, `prompt` solo acepta `text`, y el intento de enviar primero un `synthetic` y luego un `prompt` produjo dos turnos del director.
+
 El `subagent` nativo elige el agente pero no el actor, no sabe de bajas y no tiene background. Las hijas no se crean con `fork`, porque copiaría todo el historial del padre a un agente que debería empezar solo con un brief.
 
 ## Consequences
