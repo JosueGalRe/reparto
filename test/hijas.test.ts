@@ -117,7 +117,7 @@ test('native child fails closed if its actor is unavailable or switchModel fails
 
   // When: V2 cannot switch the actor; Then: prompt rejects rather than using the inherited model.
   await expect(imponerHija(ctx as never, 'ses_failed')).rejects.toThrow('switch failed')
-  expect(proceso.hijosNativos?.has('ses_failed')).toBe(false)
+  expect(proceso.hijasNativas?.has('ses_failed')).toBe(false)
   const saved = proceso.validacion
 
   proceso.validacion = undefined

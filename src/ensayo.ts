@@ -10,7 +10,7 @@ import { esRegistro } from './validation-utils.ts'
 
 import type { Validacion } from './actores.ts'
 import type { Actor } from './config.ts'
-import type { Encargo } from './encargos.ts'
+import type { Encargo, EntradaRevisor } from './encargos-types.ts'
 import type { Database } from 'bun:sqlite'
 
 export interface Objecion {
@@ -297,11 +297,7 @@ export function ensayo(
     }
   },
   encargos: {
-    delegar: (
-      entrada: { a: string; prompt: string },
-      tool: { sessionID: string; signal: AbortSignal },
-      actor: Actor,
-    ) => Promise<string>
+    delegar: (entrada: EntradaRevisor, tool: { sessionID: string; signal: AbortSignal }, actor: Actor) => Promise<string>
   },
 ) {
   return async (input: { plan: string }, tool: { sessionID: string; signal: AbortSignal }) => {
@@ -434,7 +430,7 @@ export function ensayo(
     const prompt = `${contexto}\n\nPlan snapshot (review this exact text):\n${version.contenido}\n\nOutput format: VEREDICTO: APROBADO or VEREDICTO: OBJECIONES; OBJECION: section | concrete defect | cause | closing condition (and round-1 justification for new closure-round objections); ACTA: numeric-id | cerrado/abierto for each acta entry; NOTA: observation.`
     const resultados = await Promise.allSettled(
       (['critico', 'oracle'] as const).map(async (revisor) => {
-        const hija = await encargos.delegar({ a: revisor, prompt }, tool, actores[revisor])
+        const hija = await encargos.delegar({ revisor, prompt }, tool, actores[revisor])
         const fila = database
           .query<Encargo, { hija: string }>('SELECT * FROM encargos WHERE hija = $hija ORDER BY id DESC LIMIT 1')
           .get({ hija })

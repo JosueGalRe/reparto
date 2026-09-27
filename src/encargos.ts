@@ -1,29 +1,15 @@
 import { etiqueta, modelRef } from './actores.ts'
+import { bitacoraEncargos } from './bitacora.ts'
 import { db, write } from './db.ts'
+import { estaAbierto, etiquetaRef, posterior, recortar, tituloEncargo } from './encargos-utils.ts'
 import { log } from './log.ts'
-import { proceso } from './process.ts'
+import { abiertos, hijasNativas, proceso } from './process.ts'
 import { esRegistro } from './validation-utils.ts'
 
 import type { Actor } from './config.ts'
-import type { Plugin } from '@opencode/plugin'
+import type { Cambios, ContextoEncargos, Encargo, EntradaRevisor, EstadoEncargo } from './encargos-types.ts'
 
-export type Estado = 'en_cola' | 'corriendo' | 'terminado' | 'fallido' | 'interrumpido' | 'estancado'
-
-export interface Encargo {
-  id: number
-  hija: string
-  padre: string
-  a: string
-  actor: string
-  estado: Estado
-  desde: number | null
-  cerrado: number | null
-  mensaje_final: string | null
-  error: string | null
-  creado: number
-}
-
-const permitidas: Record<Estado, readonly Estado[]> = {
+const permitidas: Record<EstadoEncargo, readonly EstadoEncargo[]> = {
   en_cola: ['corriendo', 'fallido'],
   corriendo: ['terminado', 'fallido', 'interrumpido', 'estancado'],
   estancado: ['corriendo', 'terminado', 'fallido', 'interrumpido'],
@@ -33,29 +19,18 @@ const permitidas: Record<Estado, readonly Estado[]> = {
 }
 
 /** El mecanismo interno de ensayar solo invoca a sus dos revisores. */
-const destinos = new Set<string>(['critico', 'oracle'])
+const revisoresPermitidos = new Set<string>(['critico', 'oracle'])
 
 const PLAZO_ESTANCADO = 30 * 60_000
-const TOPE_RESULTADO = 4_000
 const TOPE_MENSAJE_FINAL = 32_000
-
-const recortar = (texto: string, tope: number) =>
-  texto.length > tope ? `${texto.slice(0, tope)}\n[… recortado, ${texto.length - tope} caracteres más]` : texto
-
-export function tituloEncargo(agente: string, prompt: string): string {
-  const resumen = (prompt.split('\n').find((linea) => linea.trim()) ?? '').trim().replace(/\s+/g, ' ')
-
-  return `${agente} · ${resumen.length > 60 ? `${resumen.slice(0, 60)}…` : resumen}`
-}
 
 // ---------- Filas ----------
 
-export const leer = (id: number) => db().query<Encargo, { id: number }>('SELECT * FROM encargos WHERE id = $id').get({ id })
-
-type Cambios = Partial<Pick<Encargo, 'desde' | 'cerrado' | 'mensaje_final' | 'error'>>
+export const leerEncargo = (id: number) =>
+  db().query<Encargo, { id: number }>('SELECT * FROM encargos WHERE id = $id').get({ id })
 
 /** Transición atómica: solo la instancia que obtiene `changes = 1` sigue (y avisa). */
-export function transicion(encargo: Encargo, estado: Estado, cambios: Cambios = {}): boolean {
+export function cambiarEstadoEncargo(encargo: Encargo, estado: EstadoEncargo, cambios: Cambios = {}): boolean {
   if (!permitidas[encargo.estado].includes(estado)) {
     log.error('transición no permitida', { id: encargo.id, de: encargo.estado, a: estado })
 
@@ -74,53 +49,9 @@ export function transicion(encargo: Encargo, estado: Estado, cambios: Cambios = 
   return resultado?.changes === 1
 }
 
-/** Un evento o un outcome cuenta para la fila solo si es posterior a `desde`: el `outcome` es el de la última ejecución de la sesión. */
-export const posterior = (instante: number | undefined, desde: number | null) =>
-  instante !== undefined && desde !== null && instante > desde
-
 // Ponytail: sin cola por proveedor; si los 429 propios la exigen, usar una cola global en SQLite.
 
-export const abiertos = () => (proceso.abiertos ??= new Map())
-export const hijosNativos = () => (proceso.hijosNativos ??= new Map())
-
 // ---------- Encargos ----------
-
-type Sesion = Awaited<ReturnType<Plugin.Context['session']['get']>>
-type Mensaje = Awaited<ReturnType<Plugin.Context['session']['context']>>[number]
-
-interface Ctx {
-  readonly session: {
-    get: (entrada: { sessionID: string }) => Promise<
-      Pick<Sesion, 'parentID' | 'agent' | 'model' | 'outcome' | 'title' | 'metadata' | 'location'> & {
-        readonly time: Pick<Sesion['time'], 'idle'>
-      }
-    >
-    create: (entrada: Parameters<Plugin.Context['session']['create']>[0]) => Promise<{ id: string }>
-    context: (entrada: { sessionID: string }) => Promise<
-      readonly (
-        | {
-            readonly type: 'assistant'
-            readonly content: readonly (
-              | { readonly type: 'text'; readonly text: string }
-              | { readonly type: 'reasoning' | 'tool' }
-            )[]
-          }
-        | { readonly type: Exclude<Mensaje['type'], 'assistant'> }
-      )[]
-    >
-    prompt: (entrada: Parameters<Plugin.Context['session']['prompt']>[0]) => Promise<unknown>
-    wait: (entrada: Parameters<Plugin.Context['session']['wait']>[0]) => Promise<void>
-    interrupt: (entrada: Parameters<Plugin.Context['session']['interrupt']>[0]) => Promise<unknown>
-  }
-}
-
-interface Entrada {
-  readonly a: string
-  readonly prompt: string
-}
-
-const etiquetaRef = (modelo: { providerID: string; id: string; variant?: string } | undefined) =>
-  modelo ? etiqueta({ model: `${modelo.providerID}/${modelo.id}`, variant: modelo.variant }) : 'desconocido'
 
 function textoPermiso(titulo: string, action: string, resources: readonly string[], requestID: string): string {
   return `[reparto] ${titulo} — espera permiso: ${action} ${resources.join(', ')} (${requestID})\nÁbrela en chats por su título y aprueba o rechaza ahí.`
@@ -146,25 +77,8 @@ function registrarPermiso(request: { id: string; sessionID: string; action: stri
   )
 }
 
-export function encargos(ctx: Ctx) {
-  async function mensajeFinal(hija: string): Promise<string | undefined> {
-    const mensajes = await ctx.session.context({ sessionID: hija })
-
-    for (const mensaje of mensajes.toReversed()) {
-      if (mensaje.type !== 'assistant') {
-        continue
-      }
-
-      const texto = mensaje.content
-        .flatMap((parte) => (parte.type === 'text' ? [parte.text] : []))
-        .join('\n')
-        .trim()
-
-      if (texto) {
-        return texto
-      }
-    }
-  }
+export function encargos(ctx: ContextoEncargos) {
+  const { mensajeFinal, registrarLlamada, bitacora } = bitacoraEncargos(ctx)
 
   /** Cómo cerró la última ejecución, si es posterior a `desde`; undefined si todavía corre. */
   async function cierre(encargo: Encargo, errorEvento?: string) {
@@ -202,7 +116,7 @@ export function encargos(ctx: Ctx) {
     proceso.cerrando.add(id)
 
     try {
-      const encargo = leer(id)
+      const encargo = leerEncargo(id)
 
       if (!encargo || (encargo.estado !== 'corriendo' && encargo.estado !== 'estancado')) {
         return
@@ -225,7 +139,7 @@ export function encargos(ctx: Ctx) {
         error: cierreActual.error ?? null,
       }
 
-      if (!transicion(encargo, cierreActual.estado, cambios)) {
+      if (!cambiarEstadoEncargo(encargo, cierreActual.estado, cambios)) {
         return
       }
 
@@ -248,10 +162,10 @@ export function encargos(ctx: Ctx) {
 
   /** Pasa a corriendo y manda el prompt. */
   async function correr(id: number, prompt: string): Promise<boolean> {
-    const encargo = leer(id)!
+    const encargo = leerEncargo(id)!
     const desde = Date.now()
 
-    if (encargo.estado !== 'en_cola' || !transicion(encargo, 'corriendo', { desde })) {
+    if (encargo.estado !== 'en_cola' || !cambiarEstadoEncargo(encargo, 'corriendo', { desde })) {
       return false
     }
 
@@ -265,10 +179,10 @@ export function encargos(ctx: Ctx) {
 
       return true
     } catch (error) {
-      const actual = leer(id)!
+      const actual = leerEncargo(id)!
 
       if (
-        transicion(actual, 'fallido', {
+        cambiarEstadoEncargo(actual, 'fallido', {
           cerrado: Date.now(),
           error: `el prompt falló: ${String(error)}`,
         })
@@ -280,7 +194,7 @@ export function encargos(ctx: Ctx) {
     }
   }
 
-  async function delegar(args: Entrada, tool: { sessionID: string; signal: AbortSignal }, actorElegido: Actor) {
+  async function delegar(args: EntradaRevisor, tool: { sessionID: string; signal: AbortSignal }, actorElegido: Actor) {
     const validacion = proceso.validacion
 
     if (!validacion) {
@@ -291,28 +205,30 @@ export function encargos(ctx: Ctx) {
 
     let suplencia: string | undefined
 
-    if (!destinos.has(args.a)) {
-      throw new Error(`"${args.a}" no es un agente ni un papel al que se pueda delegar (${[...destinos].join(', ')})`)
+    if (!revisoresPermitidos.has(args.revisor)) {
+      throw new Error(
+        `"${args.revisor}" no es un agente ni un papel al que se pueda delegar (${[...revisoresPermitidos].join(', ')})`,
+      )
     }
 
-    if (!validacion.actores.has(args.a)) {
-      throw new Error(`"${args.a}" está desactivado: no tiene actores válidos`)
+    if (!validacion.actores.has(args.revisor)) {
+      throw new Error(`"${args.revisor}" está desactivado: no tiene actores válidos`)
     }
 
-    if (actorElegido !== validacion.actores.get(args.a)?.[0]) {
+    if (actorElegido !== validacion.actores.get(args.revisor)?.[0]) {
       suplencia = `el titular está de baja; entra ${etiqueta(actorElegido)}`
     }
 
     const sesion = await ctx.session.create({
-      title: tituloEncargo(args.a, args.prompt),
-      agent: args.a,
+      title: tituloEncargo(args.revisor, args.prompt),
+      agent: args.revisor,
       model: modelRef(actorElegido),
       location: { directory: padre.location.directory },
       metadata: { padre: tool.sessionID },
     })
 
     const hija = sesion.id
-    const agente = args.a
+    const agente = args.revisor
     const actor = etiqueta(actorElegido)
 
     const fila = {
@@ -351,10 +267,10 @@ export function encargos(ctx: Ctx) {
     })
 
     const interrumpir = () => {
-      const encargo = leer(id)
+      const encargo = leerEncargo(id)
 
       if (encargo?.estado === 'en_cola') {
-        transicion(encargo, 'fallido', { cerrado: Date.now(), error: 'cancelado antes de correr' })
+        cambiarEstadoEncargo(encargo, 'fallido', { cerrado: Date.now(), error: 'cancelado antes de correr' })
       } else {
         void ctx.session
           .interrupt({ sessionID: hija })
@@ -371,7 +287,7 @@ export function encargos(ctx: Ctx) {
       }
 
       // Otra instancia puede estar cerrando la misma fila a partir del evento: se espera su transición
-      for (let intento = 0; intento < 40 && isOpen(leer(id)); intento++) {
+      for (let intento = 0; intento < 40 && estaAbierto(leerEncargo(id)); intento++) {
         await Bun.sleep(250)
       }
     } finally {
@@ -396,7 +312,7 @@ export function encargos(ctx: Ctx) {
 
     if (sesion.parentID) {
       await ctx.session.interrupt({ sessionID: hija })
-      hijosNativos().delete(hija)
+      hijasNativas().delete(hija)
 
       return { content: `Encargo ${hija} interrumpido.`, metadata: { hija, estado: 'interrumpido' } }
     }
@@ -415,23 +331,23 @@ export function encargos(ctx: Ctx) {
       // No llegó a correr: no hay ejecución que interrumpir, y en_cola solo puede pasar a corriendo o fallido
       const cambios = { cerrado: Date.now(), error: 'interrumpido antes de correr' }
 
-      if (transicion(encargo, 'fallido', cambios)) {
+      if (cambiarEstadoEncargo(encargo, 'fallido', cambios)) {
         abiertos().delete(hija)
       }
     } else {
       await ctx.session.interrupt({ sessionID: hija })
 
       // La transición a interrumpido la hace cerrar(), a partir de session.execution.interrupted
-      for (let intento = 0; intento < 40 && isOpen(leer(encargo.id)); intento++) {
+      for (let intento = 0; intento < 40 && estaAbierto(leerEncargo(encargo.id)); intento++) {
         await Bun.sleep(250)
       }
 
-      if (isOpen(leer(encargo.id))) {
+      if (estaAbierto(leerEncargo(encargo.id))) {
         await cerrar(encargo.id)
       }
     }
 
-    const final = leer(encargo.id)!
+    const final = leerEncargo(encargo.id)!
 
     log.info('interrupción pedida', { id: encargo.id, hija, por: tool.sessionID, estado: final.estado })
 
@@ -439,101 +355,6 @@ export function encargos(ctx: Ctx) {
       content: `Encargo ${hija} (${encargo.a}): ${final.estado}${final.error ? ` (${final.error})` : ''}.`,
       metadata: { encargo: encargo.id, hija, estado: final.estado },
     }
-  }
-
-  async function bitacora(entrada: unknown) {
-    if (!esRegistro(entrada) || typeof entrada.id !== 'string') {
-      throw new Error('bitacora: falta `id` (el id de la sesión hija)')
-    }
-
-    const encargo = db()
-      .query<Encargo, { hija: string }>('SELECT * FROM encargos WHERE hija = $hija ORDER BY id DESC LIMIT 1')
-      .get({ hija: entrada.id })
-    const sesion = encargo ? undefined : await ctx.session.get({ sessionID: entrada.id }).catch(() => undefined)
-
-    if (!encargo && !sesion?.parentID) {
-      throw new Error(`${entrada.id} no es un encargo de reparto`)
-    }
-
-    const completo = entrada.detalle === 'completo'
-    const llamadas = db()
-      .query<
-        {
-          tool: string
-          argumentos: string
-          resultado: string | null
-          estado: string
-        },
-        { hija: string }
-      >('SELECT tool, argumentos, resultado, estado FROM bitacora WHERE hija = $hija ORDER BY hora')
-      .all({ hija: entrada.id })
-    const lineas = llamadas.map((llamada) => {
-      const base = `- ${llamada.tool} ${argumentoClave(llamada.argumentos)}${llamada.estado === 'error' ? ' [error]' : ''}`
-
-      return completo && llamada.resultado ? `${base}\n  → ${llamada.resultado.replaceAll('\n', '\n    ')}` : base
-    })
-    const final = db()
-      .query<{ texto: string }, { hija: string }>('SELECT texto FROM mensajes_hijas WHERE hija = $hija')
-      .get({ hija: entrada.id })
-
-    return {
-      content: [
-        encargo
-          ? `Encargo ${encargo.hija} (${encargo.a}, ${encargo.actor}): ${encargo.estado}${encargo.error ? ` (${encargo.error})` : ''}.`
-          : `Encargo ${entrada.id} (${sesion?.agent}): ${sesion?.outcome ?? 'abierto'}.`,
-        `Tool calls (${llamadas.length}):`,
-        lineas.join('\n') || '(ninguna)',
-        `Mensaje final:`,
-        encargo?.mensaje_final ?? final?.texto ?? (sesion ? await mensajeFinal(entrada.id) : undefined) ?? '(todavía no hay)',
-      ].join('\n\n'),
-    }
-  }
-
-  async function registrarLlamada(llamada: {
-    tool: string
-    sessionID: string
-    messageID: string
-    id: string
-    input: unknown
-    status: 'completed' | 'error'
-    result?: { content?: unknown }
-    error?: { message: string }
-  }) {
-    if (!abiertos().has(llamada.sessionID)) {
-      const sesion = await ctx.session.get({ sessionID: llamada.sessionID }).catch(() => undefined)
-
-      if (!sesion?.parentID) {
-        return
-      }
-    }
-
-    let resultado: string
-
-    if (llamada.status === 'error') {
-      resultado = llamada.error?.message ?? ''
-    } else if (typeof llamada.result?.content === 'string') {
-      resultado = llamada.result.content
-    } else {
-      resultado = JSON.stringify(llamada.result?.content ?? '')
-    }
-
-    write(db(), 'bitácora', () =>
-      db()
-        .query(
-          `INSERT OR IGNORE INTO bitacora (hija, mensaje, llamada, tool, argumentos, resultado, estado, hora)
-           VALUES ($hija, $mensaje, $llamada, $tool, $argumentos, $resultado, $estado, $hora)`,
-        )
-        .run({
-          hija: llamada.sessionID,
-          mensaje: llamada.messageID,
-          llamada: llamada.id,
-          tool: llamada.tool,
-          argumentos: JSON.stringify(llamada.input ?? {}),
-          resultado: recortar(resultado, TOPE_RESULTADO),
-          estado: llamada.status,
-          hora: Date.now(),
-        }),
-    )
   }
 
   /** Eventos de todas las locations del proceso (S15); los session.execution.* no traen location (S13). */
@@ -549,7 +370,7 @@ export function encargos(ctx: Ctx) {
         }
       | undefined
     const abierto = data?.sessionID ? abiertos().get(data.sessionID) : undefined
-    const nativo = data?.sessionID ? hijosNativos().get(data.sessionID) : undefined
+    const nativo = data?.sessionID ? hijasNativas().get(data.sessionID) : undefined
 
     if (nativo && posterior(ev.created, nativo.desde)) {
       if (
@@ -560,7 +381,7 @@ export function encargos(ctx: Ctx) {
         const hija = data?.sessionID
 
         if (hija) {
-          hijosNativos().delete(hija)
+          hijasNativas().delete(hija)
 
           try {
             const texto = await mensajeFinal(hija)
@@ -604,9 +425,9 @@ export function encargos(ctx: Ctx) {
     }
 
     if (ev.type === 'permission.asked' && data?.id && data.action && data.resources && data.sessionID) {
-      const encargo = leer(abierto.id)
+      const encargo = leerEncargo(abierto.id)
 
-      if (!encargo || !isOpen(encargo)) {
+      if (!encargo || !estaAbierto(encargo)) {
         return
       }
 
@@ -643,7 +464,7 @@ export function encargos(ctx: Ctx) {
   async function vigilar() {
     const ahora = Date.now()
 
-    for (const [hija, nativo] of hijosNativos()) {
+    for (const [hija, nativo] of hijasNativas()) {
       if (nativo.avisado || nativo.permisos.size || ahora - nativo.actividad < PLAZO_ESTANCADO) {
         continue
       }
@@ -664,29 +485,4 @@ export function encargos(ctx: Ctx) {
   }
 
   return { delegar, interrumpir, bitacora, registrarLlamada, evento, vigilar }
-}
-
-const isOpen = (encargo: Encargo | null) =>
-  !!encargo && (encargo.estado === 'en_cola' || encargo.estado === 'corriendo' || encargo.estado === 'estancado')
-
-const clavesArgumento = ['command', 'pattern', 'filePath', 'path', 'query', 'url', 'a']
-
-export function argumentoClave(argumentos: string): string {
-  let entrada: unknown
-
-  try {
-    entrada = JSON.parse(argumentos)
-  } catch {
-    return recortar(argumentos, 160)
-  }
-
-  if (!esRegistro(entrada)) {
-    return ''
-  }
-
-  const clave =
-    clavesArgumento.find((clave) => typeof entrada[clave] === 'string') ??
-    Object.keys(entrada).find((clave) => typeof entrada[clave] === 'string')
-
-  return clave ? `${clave}=${recortar(String(entrada[clave]), 160).replaceAll('\n', ' ')}` : ''
 }

@@ -5,9 +5,11 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, expect, test } from 'bun:test'
 
 import { db, openDb } from '../src/db.ts'
-import { abiertos, encargos } from '../src/encargos.ts'
+import { encargos } from '../src/encargos.ts'
 import { ensayo } from '../src/ensayo.ts'
-import { proceso } from '../src/process.ts'
+import { abiertos, proceso } from '../src/process.ts'
+
+import { sesionesDobles } from './dobles.ts'
 
 type Sesiones = Parameters<typeof encargos>[0]['session']
 const actor = { model: 'kimi/revisor', variant: 'thinking' }
@@ -54,7 +56,7 @@ function preparar() {
   const prompts: Parameters<Sesiones['prompt']>[0][] = []
   const sesiones = new Map<string, Awaited<ReturnType<Sesiones['get']>>>()
   const ctx: { session: Sesiones } = {
-    session: {
+    session: sesionesDobles({
       get: async ({ sessionID }) => {
         if (sessionID === tool.sessionID) {
           return {
@@ -104,7 +106,7 @@ function preparar() {
         await ctx.session.get({ sessionID })
       },
       interrupt: inesperado,
-    },
+    }),
   }
   const ejecutar = encargos(ctx)
 
@@ -116,7 +118,7 @@ test('delegar conserva el veredicto completo y el actor elegido antes del prompt
   const { ejecutar, tool, creaciones, prompts } = preparar()
 
   // When: corre el ejecutor real sobre SQLite.
-  const hija = await ejecutar.delegar({ a: 'critico', prompt: 'Revisa el plan' }, tool, actor)
+  const hija = await ejecutar.delegar({ revisor: 'critico', prompt: 'Revisa el plan' }, tool, actor)
 
   // Then: persiste el resultado íntegro y crea la hija con su dueño y actor, sin pasar skills.
   expect(db().query('SELECT estado, mensaje_final, actor, padre FROM encargos WHERE hija = ?').get(hija)).toEqual({
@@ -164,7 +166,7 @@ test('delegar cancela por signal y retira el listener al terminar', async () => 
     terminado.resolve()
   }
 
-  const pendiente = ejecutar.delegar({ a: 'critico', prompt: 'Revisa' }, tool, actor)
+  const pendiente = ejecutar.delegar({ revisor: 'critico', prompt: 'Revisa' }, tool, actor)
   const hija = await esperando.promise
 
   // When: se cancela mientras espera.
@@ -193,7 +195,7 @@ test('el permiso del revisor avisa a su padre una sola vez aunque se repitan eve
     }
   }
 
-  const pendiente = ejecutar.delegar({ a: 'critico', prompt: 'Revisa' }, tool, actor)
+  const pendiente = ejecutar.delegar({ revisor: 'critico', prompt: 'Revisa' }, tool, actor)
   const hija = await esperando.promise
   const evento = {
     type: 'permission.asked',
@@ -239,7 +241,7 @@ test('cierres simultáneos ignoran eventos viejos y leen el veredicto una sola v
     return context(entrada)
   }
 
-  const pendiente = ejecutar.delegar({ a: 'critico', prompt: 'Revisa' }, tool, actor)
+  const pendiente = ejecutar.delegar({ revisor: 'critico', prompt: 'Revisa' }, tool, actor)
   const hija = await esperando.promise
   const fila = db().query<{ desde: number }, [string]>('SELECT desde FROM encargos WHERE hija = ?').get(hija)
 
@@ -287,11 +289,11 @@ test('un prompt fallido cierra su fila y el reintento crea otra sesión', async 
   ctx.session.wait = inesperado
 
   // When: falla y luego se vuelve a delegar con transporte disponible.
-  const fallida = await ejecutar.delegar({ a: 'critico', prompt: 'Revisa' }, tool, actor)
+  const fallida = await ejecutar.delegar({ revisor: 'critico', prompt: 'Revisa' }, tool, actor)
 
   ctx.session.prompt = prompt
   ctx.session.wait = wait
-  const terminada = await ejecutar.delegar({ a: 'critico', prompt: 'Revisa' }, tool, actor)
+  const terminada = await ejecutar.delegar({ revisor: 'critico', prompt: 'Revisa' }, tool, actor)
 
   ctx.session.interrupt = async () => {
     interrupciones++
@@ -308,7 +310,7 @@ test('un prompt fallido cierra su fila y el reintento crea otra sesión', async 
 test('interrumpir rechaza al ajeno aunque el revisor no tenga parentID nativo', async () => {
   // Given: una hija real del ejecutor, ligada por metadata.padre.
   const { ejecutar, tool } = preparar()
-  const hija = await ejecutar.delegar({ a: 'critico', prompt: 'Revisa' }, tool, actor)
+  const hija = await ejecutar.delegar({ revisor: 'critico', prompt: 'Revisa' }, tool, actor)
 
   // When/Then: otro padre no puede interrumpirla.
   await expect(ejecutar.interrumpir({ id: hija }, { sessionID: 'ses_ajena' })).rejects.toThrow(

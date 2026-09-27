@@ -5,8 +5,15 @@ import { join } from 'node:path'
 import { afterAll, beforeAll, expect, test } from 'bun:test'
 
 import { openDb } from '../src/db.ts'
-import { argumentoClave, encargos, hijosNativos, leer, posterior, tituloEncargo, transicion } from '../src/encargos.ts'
-import { proceso } from '../src/process.ts'
+import { argumentoClave, posterior, tituloEncargo } from '../src/encargos-utils.ts'
+import { cambiarEstadoEncargo, encargos, leerEncargo } from '../src/encargos.ts'
+import { hijasNativas, proceso } from '../src/process.ts'
+
+import { sesionesDobles, sesionNativa } from './dobles.ts'
+
+import type { ContextoEncargos } from '../src/encargos-types.ts'
+
+type Mensaje = Awaited<ReturnType<ContextoEncargos['session']['context']>>[number]
 
 const dir = mkdtempSync(join(tmpdir(), 'reparto-encargos-'))
 
@@ -31,17 +38,17 @@ function crear(estado: string) {
 }
 
 test('transición atómica: de dos instancias con la misma foto, gana una sola', () => {
-  const foto = leer(crear('corriendo'))!
+  const foto = leerEncargo(crear('corriendo'))!
 
-  expect(transicion(foto, 'terminado', { mensaje_final: 'ok' })).toBe(true)
-  expect(transicion(foto, 'fallido')).toBe(false)
-  expect(leer(foto.id)).toMatchObject({ estado: 'terminado', mensaje_final: 'ok' })
+  expect(cambiarEstadoEncargo(foto, 'terminado', { mensaje_final: 'ok' })).toBe(true)
+  expect(cambiarEstadoEncargo(foto, 'fallido')).toBe(false)
+  expect(leerEncargo(foto.id)).toMatchObject({ estado: 'terminado', mensaje_final: 'ok' })
 })
 
 test('transiciones no permitidas: los terminales no se reabren y en_cola no termina sin correr', () => {
-  expect(transicion(leer(crear('terminado'))!, 'corriendo')).toBe(false)
-  expect(transicion(leer(crear('en_cola'))!, 'terminado')).toBe(false)
-  expect(transicion(leer(crear('estancado'))!, 'corriendo')).toBe(true)
+  expect(cambiarEstadoEncargo(leerEncargo(crear('terminado'))!, 'corriendo')).toBe(false)
+  expect(cambiarEstadoEncargo(leerEncargo(crear('en_cola'))!, 'terminado')).toBe(false)
+  expect(cambiarEstadoEncargo(leerEncargo(crear('estancado'))!, 'corriendo')).toBe(true)
 })
 
 test('un cierre de una ejecución anterior (antes de `desde`) no cuenta para la fila retomada', () => {
@@ -73,14 +80,14 @@ test.each([null, undefined, 42, 'texto', [], Object.assign([], { id: 'ses_hija' 
       throw new Error('no debe consultar ni modificar sesiones')
     }
     const gestor = encargos({
-      session: {
+      session: sesionesDobles({
         get: inesperado,
         create: inesperado,
         context: inesperado,
         prompt: inesperado,
         wait: inesperado,
         interrupt: inesperado,
-      },
+      }),
     })
 
     // When: las dos tools reciben la entrada; Then: mantienen el error de id sin llegar al SDK.
@@ -103,12 +110,12 @@ test("bitacora records a native child's tool calls and reads its final message",
   // Given: a native child without a row in encargos, even after compaction.
   const hija = `ses_${crypto.randomUUID()}`
   const ctx = {
-    session: {
-      get: async () => ({ parentID: 'ses_p', agent: 'utilero', outcome: 'succeeded' }),
+    session: sesionesDobles({
+      get: async () => sesionNativa({ parentID: 'ses_p', agent: 'utilero', outcome: 'succeeded' }),
       context: async () => [{ type: 'assistant', content: [{ type: 'text', text: 'Found it' }] }],
-    },
+    }),
   }
-  const job = encargos(ctx as never)
+  const job = encargos(ctx)
 
   // When: execute.after records a read and bitacora is requested.
   await job.registrarLlamada({
@@ -132,22 +139,20 @@ test("interrumpir accepts only the caller's native child", async () => {
   const hija = `ses_${crypto.randomUUID()}`
   let interrupted = 0
   const ctx = {
-    session: {
-      get: async () => ({ parentID: 'ses_owner' }),
+    session: sesionesDobles({
+      get: async () => sesionNativa({ parentID: 'ses_owner' }),
       interrupt: async () => {
         interrupted++
       },
-    },
+    }),
   }
-  const job = encargos(ctx as never)
+  const job = encargos(ctx)
 
   // When: a different caller tries, Then: it is rejected without interrupting.
-  await expect(job.interrumpir({ id: hija }, { sessionID: 'ses_other' } as never)).rejects.toThrow(
-    'no es un encargo de esta sesión',
-  )
+  await expect(job.interrumpir({ id: hija }, { sessionID: 'ses_other' })).rejects.toThrow('no es un encargo de esta sesión')
   expect(interrupted).toBe(0)
   // When: its owner interrupts, Then: V2 receives the interruption.
-  await job.interrumpir({ id: hija }, { sessionID: 'ses_owner' } as never)
+  await job.interrumpir({ id: hija }, { sessionID: 'ses_owner' })
   expect(interrupted).toBe(1)
 })
 
@@ -156,17 +161,17 @@ test('native completion and permission events do not send duplicate text notices
   const hija = `ses_${crypto.randomUUID()}`
   let notices = 0
   const job = encargos({
-    session: {
+    session: sesionesDobles({
       prompt: async () => {
         notices++
       },
       context: async () => [],
-    },
-  } as never)
+    }),
+  })
 
   const desde = Date.now()
 
-  hijosNativos().set(hija, { padre: 'ses_p', desde, actividad: desde, avisado: false, permisos: new Set() })
+  hijasNativas().set(hija, { padre: 'ses_p', desde, actividad: desde, avisado: false, permisos: new Set() })
 
   // When: a permission is requested and execution completes; Then: native UX alone handles both.
   await job.evento({
@@ -176,7 +181,7 @@ test('native completion and permission events do not send duplicate text notices
   })
   await job.evento({ type: 'session.execution.succeeded', created: desde + 2, data: { sessionID: hija } })
   expect(notices).toBe(0)
-  expect(hijosNativos().has(hija)).toBe(false)
+  expect(hijasNativas().has(hija)).toBe(false)
 })
 
 test('native stale watcher sends one notice, skips pending permission and stops after completion', async () => {
@@ -185,17 +190,17 @@ test('native stale watcher sends one notice, skips pending permission and stops 
   const blocked = `ses_${crypto.randomUUID()}`
   const notices: string[] = []
   const ctx = {
-    session: {
+    session: sesionesDobles({
       prompt: async (entrada: { text: string }) => {
         notices.push(entrada.text)
       },
       context: async () => [],
-    },
+    }),
   }
-  const job = encargos(ctx as never)
+  const job = encargos(ctx)
 
-  hijosNativos().set(hija, { padre: 'ses_p', desde: 0, actividad: 1, avisado: false, permisos: new Set() })
-  hijosNativos().set(blocked, { padre: 'ses_p', desde: 0, actividad: 1, avisado: false, permisos: new Set(['per_1']) })
+  hijasNativas().set(hija, { padre: 'ses_p', desde: 0, actividad: 1, avisado: false, permisos: new Set() })
+  hijasNativas().set(blocked, { padre: 'ses_p', desde: 0, actividad: 1, avisado: false, permisos: new Set(['per_1']) })
   // When: the watcher runs twice.
   await job.vigilar()
   await job.vigilar()
@@ -203,8 +208,8 @@ test('native stale watcher sends one notice, skips pending permission and stops 
   expect(notices).toHaveLength(1)
   expect(notices[0]).toContain(hija)
   await job.evento({ type: 'session.execution.succeeded', created: 2, data: { sessionID: hija } })
-  expect(hijosNativos().has(hija)).toBe(false)
-  hijosNativos().delete(blocked)
+  expect(hijasNativas().has(hija)).toBe(false)
+  hijasNativas().delete(blocked)
 })
 
 test('a late terminal event cannot remove a continued native child watch', async () => {
@@ -213,12 +218,16 @@ test('a late terminal event cannot remove a continued native child watch', async
   const desde = Date.now()
   const vigilancia = { padre: 'ses_p', desde, actividad: desde, avisado: false, permisos: new Set<string>() }
 
-  hijosNativos().set(hija, vigilancia)
+  hijasNativas().set(hija, vigilancia)
 
   // When: an earlier execution finishes late; Then: the new watch survives.
-  await encargos({} as never).evento({ type: 'session.execution.succeeded', created: desde - 1, data: { sessionID: hija } })
-  expect(hijosNativos().get(hija)).toBe(vigilancia)
-  hijosNativos().delete(hija)
+  await encargos({ session: sesionesDobles() }).evento({
+    type: 'session.execution.succeeded',
+    created: desde - 1,
+    data: { sessionID: hija },
+  })
+  expect(hijasNativas().get(hija)).toBe(vigilancia)
+  hijasNativas().delete(hija)
 })
 
 test('one permission reply leaves the other pending for the stale watcher', async () => {
@@ -227,14 +236,14 @@ test('one permission reply leaves the other pending for the stale watcher', asyn
   const vigilancia = { padre: 'ses_p', desde: 0, actividad: 1, avisado: false, permisos: new Set<string>() }
   const notices: string[] = []
   const job = encargos({
-    session: {
+    session: sesionesDobles({
       prompt: async ({ text }: { text: string }) => {
         notices.push(text)
       },
-    },
-  } as never)
+    }),
+  })
 
-  hijosNativos().set(hija, vigilancia)
+  hijasNativas().set(hija, vigilancia)
 
   // When: one of two requests is answered; Then: no stale notice is sent.
   await job.evento({ type: 'permission.asked', created: 2, data: { sessionID: hija, id: 'per_a' } })
@@ -244,18 +253,21 @@ test('one permission reply leaves the other pending for the stale watcher', asyn
   await job.vigilar()
   expect(notices).toHaveLength(0)
   expect([...vigilancia.permisos]).toEqual(['per_b'])
-  hijosNativos().delete(hija)
+  hijasNativas().delete(hija)
 })
 
 test('bitacora retains a native final message after context compaction', async () => {
   // Given: a child whose context initially includes its final answer.
   const hija = `ses_${crypto.randomUUID()}`
-  let messages = [{ type: 'assistant', content: [{ type: 'text', text: 'Final answer' }] }]
+  let messages: Mensaje[] = [{ type: 'assistant', content: [{ type: 'text', text: 'Final answer' }] }]
   const job = encargos({
-    session: { get: async () => ({ parentID: 'ses_p', agent: 'rapido', outcome: 'succeeded' }), context: async () => messages },
-  } as never)
+    session: sesionesDobles({
+      get: async () => sesionNativa({ parentID: 'ses_p', agent: 'rapido', outcome: 'succeeded' }),
+      context: async () => messages,
+    }),
+  })
 
-  hijosNativos().set(hija, { padre: 'ses_p', desde: 1, actividad: 1, avisado: false, permisos: new Set() })
+  hijasNativas().set(hija, { padre: 'ses_p', desde: 1, actividad: 1, avisado: false, permisos: new Set() })
 
   // When: completion is recorded and V2 compacts the context; Then: SQLite supplies the original answer.
   await job.evento({ type: 'session.execution.succeeded', created: 2, data: { sessionID: hija } })
@@ -275,15 +287,15 @@ test('bitacora guarda mensaje final nativo íntegro hasta el tope y recortado po
 
   for (const [indice, caso] of casos.entries()) {
     const hija = `ses_${crypto.randomUUID()}`
-    const messages = [{ type: 'assistant', content: [{ type: 'text', text: 'x'.repeat(caso.largo) }] }]
+    const messages: Mensaje[] = [{ type: 'assistant', content: [{ type: 'text', text: 'x'.repeat(caso.largo) }] }]
     const job = encargos({
-      session: {
-        get: async () => ({ parentID: 'ses_p', agent: 'rapido', outcome: 'succeeded' }),
+      session: sesionesDobles({
+        get: async () => sesionNativa({ parentID: 'ses_p', agent: 'rapido', outcome: 'succeeded' }),
         context: async () => messages,
-      },
-    } as never)
+      }),
+    })
 
-    hijosNativos().set(hija, { padre: 'ses_p', desde: indice + 10, actividad: 1, avisado: false, permisos: new Set() })
+    hijasNativas().set(hija, { padre: 'ses_p', desde: indice + 10, actividad: 1, avisado: false, permisos: new Set() })
 
     // When: completion is recorded and context is compacted; Then: bitacora returns the stored limit behavior.
     await job.evento({ type: 'session.execution.succeeded', created: indice + 11, data: { sessionID: hija } })
@@ -298,14 +310,14 @@ test('un mensaje final nativo de una ejecución anterior no pisa el guardado', a
   // Given: the latest execution's final message is already stored.
   const hija = `ses_${crypto.randomUUID()}`
   const job = encargos({
-    session: {
-      get: async () => ({ parentID: 'ses_p', agent: 'rapido', outcome: 'succeeded' }),
+    session: sesionesDobles({
+      get: async () => sesionNativa({ parentID: 'ses_p', agent: 'rapido', outcome: 'succeeded' }),
       context: async () => [{ type: 'assistant', content: [{ type: 'text', text: 'Old' }] }],
-    },
-  } as never)
+    }),
+  })
 
   proceso.db!.query('INSERT INTO mensajes_hijas (hija, desde, texto) VALUES ($hija, 20, $texto)').run({ hija, texto: 'Latest' })
-  hijosNativos().set(hija, { padre: 'ses_p', desde: 10, actividad: 1, avisado: false, permisos: new Set() })
+  hijasNativas().set(hija, { padre: 'ses_p', desde: 10, actividad: 1, avisado: false, permisos: new Set() })
 
   // When: the older execution completes; Then: the latest stored message remains.
   await job.evento({ type: 'session.execution.succeeded', created: 11, data: { sessionID: hija } })

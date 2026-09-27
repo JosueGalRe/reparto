@@ -1,8 +1,8 @@
 import { db, write } from './db.ts'
-import { hijosNativos } from './encargos.ts'
 import { clavePlan, planDeSesion, type ReferenciaPlan } from './estreno.ts'
 import { log } from './log.ts'
 import { type Item, leerPendientes } from './pendientes.ts'
+import { hijasNativas } from './process.ts'
 
 import type { Plugin } from '@opencode/plugin'
 import type { Database } from 'bun:sqlite'
@@ -133,7 +133,7 @@ export function continuacion(ctx: Plugin.Context) {
         return
       }
 
-      const background = [...hijosNativos().values()].filter((hija) => hija.padre === sessionID).length
+      const background = [...hijasNativas().values()].filter((hija) => hija.padre === sessionID).length
       const actual = decisionGuardada(db(), sessionID, ref, ev.id, background)
 
       if (!actual) {

@@ -7,12 +7,12 @@ import { readCatalog } from './catalog.ts'
 import { configPath, loadConfig } from './config.ts'
 import { continuacion } from './continuacion.ts'
 import { db, ensureSchema } from './db.ts'
-import { encargos, hijosNativos } from './encargos.ts'
+import { encargos } from './encargos.ts'
 import { ensayo } from './ensayo.ts'
 import { clavePlan, estreno, planDeSesion } from './estreno.ts'
 import { log } from './log.ts'
 import { escribirPendientes, estados, formatear, leerPendientes, parsearItems } from './pendientes.ts'
-import { proceso } from './process.ts'
+import { hijasNativas, proceso } from './process.ts'
 
 import type { PermissionEvaluation } from '@opencode/plugin/promise/permission'
 
@@ -44,7 +44,7 @@ export async function imponerHija(ctx: Plugin.Context, sessionID: string) {
     log.info('actor impuesto', { sessionID, agente, actor: etiqueta(actor), antes: sesion.model ?? null })
   }
 
-  hijosNativos().set(sessionID, { padre: sesion.parentID, desde, actividad: Date.now(), avisado: false, permisos: new Set() })
+  hijasNativas().set(sessionID, { padre: sesion.parentID, desde, actividad: Date.now(), avisado: false, permisos: new Set() })
 
   return true
 }
