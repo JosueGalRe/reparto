@@ -1,6 +1,6 @@
 import { Plugin } from "@opencode/plugin";
-import { etiqueta, modelRef, publicar, resolver, validar } from "./actores.ts";
-import { conShellDeLectura, motivoNegado, registrar, ruteo } from "./agentes.ts";
+import { esActor, etiqueta, modelRef, publicar, resolver, validar } from "./actores.ts";
+import { conShellDeLectura, motivoNegado, papeles, registrar, ruteo } from "./agentes.ts";
 import { bajasVigentes, deBaja, suplencias } from "./bajas.ts";
 import { readCatalog } from "./catalog.ts";
 import { configPath, loadConfig } from "./config.ts";
@@ -19,6 +19,23 @@ const debug = !!process.env.REPARTO_DEBUG;
 
 /** Primarios cuyo actor impone reparto en el hook `prompt`: el servidor no aplica `agent.model` (S10). */
 const primarios = new Set(["director", "dramaturgo", "regidor", "build"]);
+const hijos = new Set(["utilero", "archivista", "oracle", "critico", ...papeles]);
+
+export async function imponerHija(ctx: Plugin.Context, sessionID: string) {
+  const sesion = await ctx.session.get({ sessionID });
+  if (!sesion.parentID || !hijos.has(sesion.agent ?? "")) return false;
+  const agente = sesion.agent ?? "";
+  const actor = proceso.validacion && resolver(proceso.validacion, agente, deBaja(bajasVigentes(db())));
+  if (!actor) {
+    log.warn("sin actor para imponer", { sessionID, agente });
+    return true;
+  }
+  if (!sesion.model || !esActor(actor, sesion.model)) {
+    await ctx.session.switchModel({ sessionID, model: modelRef(actor) });
+    log.info("actor impuesto", { sessionID, agente, actor: etiqueta(actor), antes: sesion.model ?? null });
+  }
+  return true;
+}
 
 export default Plugin.define({
   id: "reparto",
@@ -62,6 +79,7 @@ export default Plugin.define({
       await ctx.session.hook("prompt", async (input) => {
         try {
           if (input.metadata?.repartoAviso === true) return;
+          if (await imponerHija(ctx, input.sessionID)) return;
           const sesion = await ctx.session.get({ sessionID: input.sessionID });
           const agente = sesion.agent ?? "director";
           if (!primarios.has(agente)) return;
