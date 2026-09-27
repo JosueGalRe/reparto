@@ -102,14 +102,22 @@ CREATE TABLE IF NOT EXISTS continuaciones (
   interrumpido INTEGER NOT NULL DEFAULT 0,
   detenido INTEGER NOT NULL DEFAULT 0
 );
+CREATE TABLE IF NOT EXISTS continuacion_eventos (
+  event_id TEXT PRIMARY KEY
+);
 `;
+
+/** Reapply additive, idempotent migrations even when the connection survives module reload. */
+export function ensureSchema(database: Database): void {
+  database.run(schema);
+}
 
 export function openDb(path: string): Database {
   mkdirSync(dirname(path), { recursive: true });
   const db = new Database(path, { create: true, strict: true });
   db.run("PRAGMA journal_mode = WAL");
   db.run("PRAGMA busy_timeout = 5000");
-  db.run(schema);
+  ensureSchema(db);
   return db;
 }
 

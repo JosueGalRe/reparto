@@ -5,7 +5,7 @@ import { bajasVigentes, deBaja, suplencias } from "./bajas.ts";
 import { readCatalog } from "./catalog.ts";
 import { configPath, loadConfig } from "./config.ts";
 import { continuacion } from "./continuacion.ts";
-import { db } from "./db.ts";
+import { db, ensureSchema } from "./db.ts";
 import { destinos, encargos } from "./encargos.ts";
 import { ensayo } from "./ensayo.ts";
 import { clavePlan, estreno, planDeSesion } from "./estreno.ts";
@@ -32,6 +32,7 @@ export default Plugin.define({
         return;
       }
       const { config } = loaded;
+      ensureSchema(db());
       log.info("activo", { location: ctx.location.directory, config: path, version: ctx.app.version, modulo });
       const bajas = bajasVigentes(db());
       if (bajas.length) log.info("bajas vigentes", { location: ctx.location.directory, bajas });

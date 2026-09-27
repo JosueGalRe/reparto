@@ -16,7 +16,8 @@ export type ReferenciaPlan = { readonly plan: string; readonly hash: string };
 export const clavePlan = ({ plan, hash }: ReferenciaPlan) => `${plan}\u0000${hash}`;
 
 export function planDeSesion(database: Database, sesion: string): ReferenciaPlan | undefined {
-  return database.query("SELECT plan, hash FROM sesiones_regidor WHERE sesion = $sesion").get({ sesion }) as ReferenciaPlan | undefined;
+  return database.query(`SELECT s.plan, s.hash FROM sesiones_regidor s JOIN estrenos e ON e.plan = s.plan AND e.hash = s.hash
+    WHERE s.sesion = $sesion`).get({ sesion }) as ReferenciaPlan | undefined;
 }
 
 export function ligarSesion(database: Database, sesion: string, ref: ReferenciaPlan) {
@@ -50,19 +51,32 @@ export function evaluarEstreno(database: Database, plan: string, hash: string, c
   throw new Error(conObjeciones ? "estreno: con-objeciones requiere 5 rondas completas sin cierre" : "estreno: los dos revisores deben aprobar el mismo hash; quedan objeciones");
 }
 
-export function registrarEstreno(database: Database, referencia: ReferenciaPlan, contenido: string, conObjeciones: boolean): { estreno: Estreno; items: Item[] } {
+export function registrarEstreno(database: Database, referencia: ReferenciaPlan, contenido: string, conObjeciones: boolean, sesion?: string): { estreno: Estreno; items: Item[]; activa?: string; nueva?: boolean } {
   const { plan, hash } = referencia;
   const tasks = tareas(contenido);
-  const aprobado = evaluarEstreno(database, plan, hash, conObjeciones);
   const resultado = write(database, "estrenar plan", () => {
+    let aprobado: ReturnType<typeof evaluarEstreno>;
+    try {
+      aprobado = evaluarEstreno(database, plan, hash, conObjeciones);
+    } catch (error) {
+      if (error instanceof Error) return error;
+      throw error;
+    }
     const fecha = Date.now();
     database.query("INSERT OR IGNORE INTO estrenos (plan, hash, fecha, tipo, objeciones) VALUES ($plan, $hash, $fecha, $tipo, $objeciones)")
       .run({ plan, hash, fecha, tipo: aprobado.tipo, objeciones: JSON.stringify(aprobado.abiertas) });
     const clave = clavePlan(referencia);
     database.query("INSERT OR IGNORE INTO pendientes (clave, items, actualizado) VALUES ($clave, $items, $actualizado)")
       .run({ clave, items: JSON.stringify(tasks), actualizado: fecha });
-    return { estreno: database.query("SELECT * FROM estrenos WHERE plan = $plan").get({ plan }) as Estreno, items: leerPendientes(database, clave) };
+    const items = leerPendientes(database, clave);
+    const activa = sesion && items.some((item) => item.estado !== "hecho")
+      ? database.query(`SELECT s.sesion FROM sesiones_regidor s JOIN estrenos e ON e.plan = s.plan AND e.hash = s.hash
+        WHERE s.plan = $plan AND s.hash = $hash ORDER BY s.rowid DESC LIMIT 1`).get({ plan, hash }) as { sesion: string } | null
+      : null;
+    if (sesion && !activa) database.query("INSERT INTO sesiones_regidor (sesion, plan, hash) VALUES ($sesion, $plan, $hash)").run({ sesion, plan, hash });
+    return { estreno: database.query("SELECT * FROM estrenos WHERE plan = $plan").get({ plan }) as Estreno, items, ...(sesion ? { activa: activa?.sesion ?? sesion, nueva: !activa } : {}) };
   });
+  if (resultado instanceof Error) throw resultado;
   if (!resultado) throw new Error("estreno: no se pudo guardar en SQLite");
   return resultado;
 }
@@ -79,18 +93,36 @@ export function estreno(ctx: Plugin.Context) {
     if (isAbsolute(nombre) || !relativa || relativa.startsWith("..") || isAbsolute(relativa) || !ruta.endsWith(".md")) throw new Error("estreno: el plan debe estar bajo .reparto/planes/ y ser .md");
     if (await realpath(ruta) !== ruta) throw new Error("estreno: no se permiten symlinks");
     const contenido = await Bun.file(ruta).text();
-    const ref = { plan: relative(sesion.location.directory, ruta), hash: createHash("sha256").update(contenido).digest("hex") };
-    const { estreno, items } = registrarEstreno(db(), ref, contenido, modificador === "con-objeciones");
-    const texto = `Plan estrenado: ${ref.plan}\nHash: ${ref.hash}\nTipo: ${estreno.tipo}${estreno.tipo === "con_objeciones" ? `\nObjeciones abiertas: ${estreno.objeciones}` : ""}\n\n${contenido}\n\nPendientes del plan:\n${formatear(items)}\n\nContinúa desde la primera tarea sin terminar. Delega cada cambio y verifica cada tarea.`;
-    if ((await ctx.session.context({ sessionID: input.sessionID })).length === 0) {
-      await ctx.session.switchAgent({ sessionID: input.sessionID, agent: "regidor" });
-      ligarSesion(db(), input.sessionID, ref);
-      await ctx.session.prompt({ sessionID: input.sessionID, text: texto, delivery: "queue", metadata: { repartoInicio: true } });
+    const ref = { plan: await realpath(ruta), hash: createHash("sha256").update(contenido).digest("hex") };
+    const vacia = (await ctx.session.context({ sessionID: input.sessionID })).length === 0;
+    const reserva = vacia ? input.sessionID : `reserva:${crypto.randomUUID()}`;
+    const resultado = registrarEstreno(db(), ref, contenido, modificador === "con-objeciones", reserva);
+    if (!resultado.nueva) {
+      let activa = resultado.activa;
+      for (let i = 0; activa?.startsWith("reserva:") && i < 50; i++) {
+        await Bun.sleep(100);
+        activa = (db().query("SELECT sesion FROM sesiones_regidor WHERE plan = $plan AND hash = $hash ORDER BY rowid DESC LIMIT 1").get(ref) as { sesion: string } | null)?.sesion;
+      }
+      if (!activa || activa.startsWith("reserva:")) throw new Error("estreno: reserva del regidor aún pendiente; reintenta");
+      await ctx.session.prompt({ sessionID: input.sessionID, text: `[reparto] el regidor ya está en la sesión ${activa}. Ábrela para continuar.`, delivery: "queue", metadata: { repartoAviso: true } });
       return;
     }
-    const nueva = await ctx.session.create({ title: `regidor · ${nombre.split("/").at(-1)?.replace(/\.md$/, "")}`, agent: "regidor", location: { directory: sesion.location.directory } });
-    ligarSesion(db(), nueva.id, ref);
-    await ctx.session.prompt({ sessionID: nueva.id, text: texto, delivery: "queue", metadata: { repartoInicio: true } });
-    await ctx.session.prompt({ sessionID: input.sessionID, text: `[reparto] estreno ${ref.plan} (${estreno.tipo}). Abre en chats «${nueva.title}» (${nueva.id}) para seguir con el regidor.`, delivery: "queue", metadata: { repartoAviso: true } });
+    let nueva: Awaited<ReturnType<typeof ctx.session.create>> | undefined;
+    if (!vacia) {
+      try {
+        nueva = await ctx.session.create({ title: `regidor · ${nombre.split("/").at(-1)?.replace(/\.md$/, "")}`, agent: "regidor", location: { directory: sesion.location.directory } });
+      } catch (error) {
+        write(db(), "liberar reserva fallida", () => db().query("DELETE FROM sesiones_regidor WHERE sesion = $reserva").run({ reserva }));
+        throw error;
+      }
+      const sesionNueva = nueva.id;
+      if (!write(db(), "ligar reserva al regidor", () => db().query("UPDATE sesiones_regidor SET sesion = $sesion WHERE sesion = $reserva").run({ sesion: sesionNueva, reserva })))
+        throw new Error("estreno: no se pudo ligar la sesión al plan");
+    }
+    const { estreno: registro, items } = resultado;
+    const texto = `Plan estrenado: ${nombre}\nHash: ${ref.hash}\nTipo: ${registro.tipo}${registro.tipo === "con_objeciones" ? `\nObjeciones abiertas: ${registro.objeciones}` : ""}\n\n${contenido}\n\nPendientes del plan:\n${formatear(items)}\n\nContinúa desde la primera tarea sin terminar. Delega cada cambio y verifica cada tarea.`;
+    if (!nueva) await ctx.session.switchAgent({ sessionID: input.sessionID, agent: "regidor" });
+    await ctx.session.prompt({ sessionID: nueva?.id ?? input.sessionID, text: texto, delivery: "queue", metadata: { repartoInicio: true } });
+    if (nueva) await ctx.session.prompt({ sessionID: input.sessionID, text: `[reparto] estreno ${nombre} (${registro.tipo}). Abre en chats «${nueva.title}» (${nueva.id}) para seguir con el regidor.`, delivery: "queue", metadata: { repartoAviso: true } });
   };
 }

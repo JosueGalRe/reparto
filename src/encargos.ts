@@ -6,6 +6,7 @@ import { bajasVigentes, deBaja } from "./bajas.ts";
 import { papeles } from "./agentes.ts";
 import type { Actor, Config } from "./config.ts";
 import { db, write } from "./db.ts";
+import { planDeSesion } from "./estreno.ts";
 import { log } from "./log.ts";
 import { proceso } from "./process.ts";
 
@@ -302,6 +303,7 @@ export function encargos(ctx: Ctx, config: Config) {
     const validacion = proceso.validacion;
     if (!validacion) throw new Error("reparto todavía no validó los actores contra el catálogo; reintenta en unos segundos");
     const padre = await ctx.session.get({ sessionID: tool.sessionID });
+    if (padre.agent === "regidor" && !planDeSesion(db(), tool.sessionID)) throw new Error("regidor sin plan estrenado: usa /estreno <plan>");
 
     let hija: string;
     let a: string;

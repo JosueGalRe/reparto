@@ -1,11 +1,14 @@
 import { afterAll, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { decidirContinuacion, decisionGuardada } from "../src/continuacion.ts";
+import { createHash } from "node:crypto";
+import type { Plugin } from "@opencode/plugin";
+import { continuacion, decidirContinuacion, decisionGuardada } from "../src/continuacion.ts";
 import { openDb } from "../src/db.ts";
-import { clavePlan, evaluarEstreno, ligarSesion, planDeSesion, registrarEstreno, tareas } from "../src/estreno.ts";
+import { clavePlan, evaluarEstreno, estreno, ligarSesion, planDeSesion, registrarEstreno, tareas } from "../src/estreno.ts";
 import { leerPendientes, escribirPendientes } from "../src/pendientes.ts";
+import { proceso } from "../src/process.ts";
 
 const dir = mkdtempSync(join(tmpdir(), "reparto-estreno-"));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
@@ -80,8 +83,103 @@ test("two open background encargos suppress continuation until they close", () =
   for (const hija of ["one", "two"]) db.query(`INSERT INTO encargos (hija, padre, a, actor, background, estado, boot_id, pid, starttime, creado)
     VALUES (?, ?, 'rapido', 'p/m', 1, 'corriendo', 'b', 1, '1', 0)`).run(`${sesion}-${hija}`, sesion);
   // When: the regidor goes idle; Then: it waits rather than prompting itself.
-  expect(decisionGuardada(db, sesion, ref)?.decision.tipo).toBe("esperar");
+  expect(decisionGuardada(db, sesion, ref, "bg-1")?.decision.tipo).toBe("esperar");
   db.query("UPDATE encargos SET estado = 'terminado' WHERE padre = ?").run(sesion);
-  expect(decisionGuardada(db, sesion, ref)?.decision.tipo).toBe("continuar");
+  expect(decisionGuardada(db, sesion, ref, "bg-2")?.decision.tipo).toBe("continuar");
   expect(leerPendientes(db, clavePlan(ref))).toHaveLength(2);
+});
+
+test("two location instances receiving the same event consume one continuation", () => {
+  // Given: one unfinished plan and a duplicate event delivered to two instances.
+  const ref = { plan: `${plan}-event`, hash: "A" };
+  escribirPendientes(db, clavePlan(ref), tareas(contenido));
+  // When: both handlers claim the same event; Then: only one consumes an attempt.
+  const first = decisionGuardada(db, "ses_event", ref, "event-1");
+  const second = decisionGuardada(db, "ses_event", ref, "event-1");
+  expect(first?.decision.tipo).toBe("continuar");
+  expect(second).toBeUndefined();
+  expect(db.query("SELECT intentos FROM continuaciones WHERE sesion = 'ses_event'").get()).toEqual({ intentos: 1 });
+});
+
+test("two plugin instances handling one event send one prompt", async () => {
+  // Given: two independent plugin handlers subscribed to the same event.
+  const ref = { plan: `${plan}-handlers`, hash: "A" };
+  ensayado(ref.plan, ref.hash, 1);
+  registrarEstreno(db, ref, contenido, false, "ses_handlers");
+  const previous = proceso.db;
+  proceso.db = db;
+  const prompts: string[] = [];
+  const ctx = { session: {
+    get: async () => ({ agent: "regidor" }),
+    prompt: async (input: { text: string }) => { prompts.push(input.text); },
+  } } as unknown as Plugin.Context;
+  try {
+    // When: both see the same id; Then: the event creates just one continuation prompt.
+    const event = { id: "event-handlers", type: "session.execution.succeeded", data: { sessionID: "ses_handlers" } };
+    await Promise.all([continuacion(ctx).evento(event), continuacion(ctx).evento(event)]);
+    expect(prompts).toHaveLength(1);
+  } finally {
+    proceso.db = previous;
+  }
+});
+
+test("same relative name in two locations does not share an ensayo or estreno", () => {
+  // Given: identical relative plan names but distinct canonical paths.
+  const a = `/repo/a/${plan}`;
+  const b = `/repo/b/${plan}`;
+  ensayado(a, "A", 1);
+  // When: the second location attempts estreno; Then: it lacks its own review.
+  expect(() => registrarEstreno(db, { plan: b, hash: "A" }, contenido, false)).toThrow(/no tiene ensayo/);
+  expect(registrarEstreno(db, { plan: a, hash: "A" }, contenido, false).estreno.plan).toBe(a);
+  expect(db.query("SELECT plan FROM estrenos WHERE plan = ?").get(b)).toBeNull();
+});
+
+test("concurrent estreno reservations reuse the active session", () => {
+  // Given: two approvals and two callers racing for the same plan and hash.
+  const name = `${plan}-race`;
+  ensayado(name, "A", 1);
+  // When: each reserves under BEGIN IMMEDIATE; Then: only the winner owns a regidor session.
+  const first = registrarEstreno(db, { plan: name, hash: "A" }, contenido, false, "ses_first");
+  const second = registrarEstreno(db, { plan: name, hash: "A" }, contenido, false, "ses_second");
+  expect(first.nueva).toBe(true);
+  expect(second).toMatchObject({ nueva: false, activa: "ses_first" });
+  expect(db.query("SELECT count(*) AS n FROM sesiones_regidor WHERE plan = ?").get(name)).toEqual({ n: 1 });
+});
+
+test("an existing estreno with a different hash refuses reservation", () => {
+  // Given: a valid estreno for version A; When: B attempts a new regidor; Then: refusal.
+  const name = `${plan}-mismatch`;
+  ensayado(name, "A", 1);
+  registrarEstreno(db, { plan: name, hash: "A" }, contenido, false, "ses_old");
+  expect(() => registrarEstreno(db, { plan: name, hash: "B" }, contenido, false, "ses_new")).toThrow(/cambió después del estreno/);
+  expect(db.query("SELECT sesion FROM sesiones_regidor WHERE plan = ?").all(name)).toEqual([{ sesion: "ses_old" }]);
+});
+
+test("two simultaneous estreno commands create just one regidor session", async () => {
+  // Given: two nonempty caller sessions and one approved plan.
+  const location = join(dir, "race-location");
+  const path = join(location, ".reparto/planes/demo.md");
+  mkdirSync(join(location, ".reparto/planes"), { recursive: true });
+  writeFileSync(path, contenido);
+  ensayado(path, createHash("sha256").update(contenido).digest("hex"), 1);
+  const previous = proceso.db;
+  proceso.db = db;
+  let created = 0;
+  const prompts: string[] = [];
+  const ctx = { session: {
+    get: async () => ({ location: { directory: location } }),
+    context: async () => [{ type: "user" }],
+    create: async () => ({ id: `ses_race_${++created}`, title: "regidor · demo" }),
+    prompt: async (input: { sessionID: string }) => { prompts.push(input.sessionID); },
+  } } as unknown as Plugin.Context;
+  try {
+    // When: both command invocations race; Then: only one creates and starts a regidor.
+    await Promise.all(["caller-a", "caller-b"].map((sessionID) => estreno(ctx)({ sessionID, prompt: { text: "/estreno .reparto/planes/demo.md" } })));
+    expect(created).toBe(1);
+    expect(db.query("SELECT sesion FROM sesiones_regidor WHERE plan = ?").all(path)).toEqual([{ sesion: "ses_race_1" }]);
+    expect(prompts.filter((id) => id === "ses_race_1")).toHaveLength(1);
+    expect(prompts).toContain("caller-b");
+  } finally {
+    proceso.db = previous;
+  }
 });

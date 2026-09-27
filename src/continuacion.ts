@@ -19,9 +19,10 @@ export function decidirContinuacion(items: readonly Item[], background: number, 
   return intentos >= 2 ? { tipo: "detener" } : { tipo: "continuar", intentos: intentos + 1 };
 }
 
-export function decisionGuardada(database: Database, sesion: string, ref: ReferenciaPlan): { decision: Decision; items: Item[] } | undefined {
+export function decisionGuardada(database: Database, sesion: string, ref: ReferenciaPlan, eventId: string): { decision: Decision; items: Item[] } | undefined {
   const clave = clavePlan(ref);
   return write(database, "continuación del regidor", () => {
+    if (database.query("INSERT OR IGNORE INTO continuacion_eventos (event_id) VALUES ($eventId)").run({ eventId }).changes !== 1) return undefined;
     database.query("INSERT OR IGNORE INTO continuaciones (sesion, clave) VALUES ($sesion, $clave)").run({ sesion, clave });
     const estado = database.query("SELECT firma, intentos, interrumpido, detenido FROM continuaciones WHERE sesion = $sesion").get({ sesion }) as Estado;
     const items = leerPendientes(database, clave);
@@ -43,9 +44,9 @@ export function continuacion(ctx: Plugin.Context) {
     write(db(), "regidor retomado por Bryan", () => db().query("UPDATE continuaciones SET interrumpido = 0, detenido = 0, intentos = 0, firma = NULL WHERE sesion = $sesion").run({ sesion: input.sessionID }));
   }
 
-  async function evento(ev: { type: string; data?: unknown }) {
+  async function evento(ev: { id: string; type: string; data?: unknown }) {
     if (ev.type !== "session.execution.succeeded" && ev.type !== "session.execution.interrupted") return;
-    const sessionID = (ev.data as { sessionID?: string } | undefined)?.sessionID;
+    const { sessionID } = (ev.data as { sessionID?: string } | undefined) ?? {};
     if (!sessionID) return;
     try {
       const sesion = await ctx.session.get({ sessionID });
@@ -58,7 +59,7 @@ export function continuacion(ctx: Plugin.Context) {
         });
         return;
       }
-      const actual = decisionGuardada(db(), sessionID, ref);
+      const actual = decisionGuardada(db(), sessionID, ref, ev.id);
       if (!actual) return;
       const { decision, items } = actual;
       if (decision.tipo !== "continuar" && decision.tipo !== "detener") return;

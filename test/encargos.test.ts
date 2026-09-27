@@ -62,6 +62,21 @@ test("dramaturgo solo delega lectura; director mantiene los papeles", () => {
   expect(puedeDelegar("director", "protagonista")).toBe(true);
 });
 
+test("regidor without an estreno cannot delegate", async () => {
+  // Given: a regidor session without a matching estreno and validated actors.
+  const previous = proceso.validacion;
+  proceso.validacion = { actores: new Map(), exclusiones: [], desactivados: [], desconocidos: [] };
+  const ctx = { session: { get: async () => ({ agent: "regidor", location: { directory: dir } }) } };
+  try {
+    proceso.db?.query("INSERT INTO sesiones_regidor (sesion, plan, hash) VALUES ('ses_unapproved', '/repo/demo.md', 'A')").run();
+    // When: it calls delegar; Then: it is directed to the estreno command.
+    const e = encargos(ctx as unknown as Parameters<typeof encargos>[0], {});
+    await expect(e.delegar({ a: "utilero", prompt: "read" }, { sessionID: "ses_unapproved" } as Parameters<typeof e.delegar>[1])).rejects.toThrow("usa /estreno <plan>");
+  } finally {
+    proceso.validacion = previous;
+  }
+});
+
 test("argumento clave de una tool call", () => {
   expect(argumentoClave(JSON.stringify({ filePath: "/a/b.ts", limit: 3 }))).toBe("filePath=/a/b.ts");
   expect(argumentoClave(JSON.stringify({ command: "rg x\n| head" }))).toBe("command=rg x | head");

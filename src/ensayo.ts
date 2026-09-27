@@ -24,21 +24,22 @@ export function parsearVeredicto(texto: string): Veredicto {
   const notas: string[] = [];
   const cierres: Record<number, "cerrado" | "abierto"> = {};
   for (const linea of lineas) {
-    if (linea.startsWith("OBJECION:")) {
+    if (linea.startsWith("OBJECION")) {
+      if (!linea.startsWith("OBJECION:")) throw new Error(`veredicto inválido: ${linea}`);
       const campos = linea.slice(9).split("|").map((s) => s.trim());
       if (campos.length < 4 || campos.length > 5 || campos.slice(0, 4).some((s) => !s)) {
-        notas.push(linea);
-        continue;
+        throw new Error(`veredicto inválido: ${linea}`);
       }
       const [seccion, defecto, causa, cierre, justificacion] = campos;
       if (seccion && defecto && causa && cierre) objeciones.push({ seccion, defecto, causa, cierre, ...(justificacion ? { justificacion } : {}) });
     } else if (linea.startsWith("NOTA:")) notas.push(linea.slice(5).trim());
-    else if (linea.startsWith("ACTA:")) {
+    else if (linea.startsWith("ACTA")) {
       const match = /^ACTA:\s*(\d+)\s*\|\s*(cerrado|abierto)$/.exec(linea);
       if (match) cierres[Number(match[1])] = match[2] === "cerrado" ? "cerrado" : "abierto";
-      else notas.push(linea);
+      else throw new Error(`veredicto inválido: ${linea}`);
     }
   }
+  if (cabecera === "VEREDICTO: OBJECIONES" && !objeciones.length) throw new Error("veredicto inválido: OBJECIONES sin objeción válida");
   return { veredicto: cabecera === "VEREDICTO: APROBADO" ? "APROBADO" : "OBJECIONES", objeciones, notas, cierres };
 }
 
@@ -106,7 +107,8 @@ export function ensayo(ctx: { session: { get: (x: { sessionID: string }) => Prom
     if (real !== ruta) throw new Error("ensayar: no se permiten symlinks");
     const contenido = await Bun.file(ruta).text();
     const hash = createHash("sha256").update(contenido).digest("hex");
-    const plan = relative(padre.location.directory, ruta);
+    const plan = real;
+    const nombre = relative(padre.location.directory, ruta);
     const database = db();
     const anterior = database.query("SELECT * FROM ensayos WHERE plan = $plan ORDER BY ronda DESC LIMIT 1").get({ plan }) as Ensayo | null;
     if (anterior?.veredicto !== "pendiente") {
@@ -114,9 +116,9 @@ export function ensayo(ctx: { session: { get: (x: { sessionID: string }) => Prom
         const filas = database.query("SELECT * FROM ensayos WHERE plan = $plan AND ronda = $ronda").all({ plan, ronda: anterior.ronda }) as Ensayo[];
         const acta = database.query("SELECT * FROM acta WHERE plan = $plan").all({ plan }) as EntradaActa[];
         if (filas.length === 2 && filas.every((r) => r.veredicto !== "pendiente") && cerrado(filas.map((r) => JSON.parse(r.veredicto) as Veredicto), acta, filas.map((r) => r.hash)) && anterior.hash === hash)
-          return { content: JSON.stringify({ plan, ronda: anterior.ronda, cerrado: true, acta }) };
+          return { content: JSON.stringify({ plan: nombre, ronda: anterior.ronda, cerrado: true, acta }) };
       }
-      if (anterior && anterior.ronda >= 5) return { content: JSON.stringify({ plan, ronda: 5, cerrado: false, decision: "Bryan debe decidir: máximo 5 rondas" }) };
+      if (anterior && anterior.ronda >= 5) return { content: JSON.stringify({ plan: nombre, ronda: 5, cerrado: false, decision: "Bryan debe decidir: máximo 5 rondas" }) };
     }
     const ronda = anterior?.veredicto === "pendiente" ? anterior.ronda : (anterior?.ronda ?? 0) + 1;
     const version = anterior?.veredicto === "pendiente"
@@ -158,6 +160,6 @@ export function ensayo(ctx: { session: { get: (x: { sessionID: string }) => Prom
     });
     if (!final) throw new Error("ensayar: no se pudo guardar la ronda");
     const cierre = cerrado(efectivos.map((r) => r.veredicto), final, [hashRonda, hashRonda]);
-    return { content: JSON.stringify({ plan, ronda, hash: hashRonda, revisores: efectivos, acta: final, cerrado: cierre, proveedores: actores.repetidos ? "proveedores repetidos" : "distintos", ...(ronda === 5 && !cierre ? { decision: "Bryan debe decidir" } : {}) }) };
+    return { content: JSON.stringify({ plan: nombre, ronda, hash: hashRonda, revisores: efectivos, acta: final, cerrado: cierre, proveedores: actores.repetidos ? "proveedores repetidos" : "distintos", ...(ronda === 5 && !cierre ? { decision: "Bryan debe decidir" } : {}) }) };
   };
 }

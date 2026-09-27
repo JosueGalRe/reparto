@@ -1,10 +1,11 @@
 import { afterAll, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDb } from "../src/db.ts";
-import { actualizarActa, admitir, cerrado, elegirRevisores, parsearVeredicto } from "../src/ensayo.ts";
+import { actualizarActa, admitir, cerrado, elegirRevisores, ensayo, parsearVeredicto } from "../src/ensayo.ts";
 import type { Validacion } from "../src/actores.ts";
+import { proceso } from "../src/process.ts";
 
 const dir = mkdtempSync(join(tmpdir(), "reparto-ensayo-"));
 afterAll(() => rmSync(dir, { recursive: true, force: true }));
@@ -16,6 +17,50 @@ test("parses approved, section-level objections and closure lines", () => {
   // When: the lines are parsed; Then: their semantic fields survive.
   expect(parsearVeredicto(aprobado)).toEqual({ veredicto: "APROBADO", objeciones: [], cierres: { 1: "cerrado" }, notas: ["optional polish"] });
   expect(parsearVeredicto(objetado).objeciones).toEqual([{ seccion: "Tasks/T1", defecto: "no verification command", causa: "outcome not checked", cierre: "add runnable check" }]);
+});
+
+test("malformed objection or acta fails the review rather than approving", () => {
+  // Given: an objection verdict with no parseable objection, or a malformed acta line.
+  // When: parsing the reviewer output; Then: neither can become an approval.
+  expect(() => parsearVeredicto("VEREDICTO: OBJECIONES\nOBJECION: T1 | incomplete")).toThrow(/inválido/);
+  expect(() => parsearVeredicto("VEREDICTO: OBJECIONES\nNOTA: no objections")).toThrow(/sin objeción/);
+  expect(() => parsearVeredicto("VEREDICTO: APROBADO\nACTA: nonsense")).toThrow(/inválido/);
+});
+
+test("a malformed reviewer leaves the round pending and relaunches fresh encargos", async () => {
+  // Given: one malformed review in a first round and valid reviews on retry.
+  const location = join(dir, "retry");
+  mkdirSync(join(location, ".reparto/planes"), { recursive: true });
+  writeFileSync(join(location, ".reparto/planes/demo.md"), "### T1: check\n");
+  const database = openDb(join(dir, "retry.db"));
+  const previous = { db: proceso.db, validacion: proceso.validacion };
+  proceso.db = database;
+  proceso.validacion = { actores: new Map([
+    ["critico", [{ model: "kimi-code-plan-global/k3" }]], ["oracle", [{ model: "claude-code/haiku" }]],
+  ]), exclusiones: [], desactivados: [], desconocidos: [] };
+  let launched = 0;
+  const ctx = { session: { get: async () => ({ agent: "dramaturgo", location: { directory: location } }) } };
+  const dispatch = { delegar: async () => {
+    const hija = `ses_retry_${++launched}`;
+    database.query(`INSERT INTO encargos (hija, padre, a, actor, background, estado, mensaje_final, boot_id, pid, starttime, creado)
+      VALUES (?, 'parent', 'critico', 'p/m', 0, 'terminado', ?, 'b', 1, '1', 0)`).run(hija,
+      launched === 1 ? "VEREDICTO: OBJECIONES\nOBJECION: malformed" : "VEREDICTO: APROBADO");
+    return { metadata: { hija } };
+  } };
+  const run = ensayo(ctx, dispatch as Parameters<typeof ensayo>[1]);
+  const tool = { sessionID: "parent" } as Parameters<ReturnType<typeof ensayo>>[1];
+  try {
+    // When: the malformed review fails; Then: the round stays pending, not approved.
+    await expect(run({ plan: ".reparto/planes/demo.md" }, tool)).rejects.toThrow(/ronda 1 incompleta/);
+    expect(database.query("SELECT DISTINCT veredicto FROM ensayos").all()).toEqual([{ veredicto: "pendiente" }]);
+    // When: retried; Then: both reviewers get new encargos and can close the round.
+    expect(JSON.parse((await run({ plan: ".reparto/planes/demo.md" }, tool)).content).cerrado).toBe(true);
+    expect(launched).toBe(4);
+  } finally {
+    proceso.db = previous.db;
+    proceso.validacion = previous.validacion;
+    database.close();
+  }
 });
 
 test("selects distinct available providers, or marks repeated providers after bajas", () => {
