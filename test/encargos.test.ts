@@ -230,3 +230,50 @@ test('bitacora retains a native final message after context compaction', async (
 
   expect(result.content).toContain('Mensaje final:\n\nFinal answer')
 })
+
+test('bitacora guarda mensaje final nativo íntegro hasta el tope y recortado por encima', async () => {
+  // Given: final messages below, at, and above the storage limit.
+  const casos = [
+    { largo: 31_999, esperado: 'x'.repeat(31_999) },
+    { largo: 32_000, esperado: 'x'.repeat(32_000) },
+    { largo: 32_001, esperado: `${'x'.repeat(32_000)}\n[… recortado, 1 caracteres más]` },
+  ]
+
+  for (const [indice, caso] of casos.entries()) {
+    const hija = `ses_${crypto.randomUUID()}`
+    const messages = [{ type: 'assistant', content: [{ type: 'text', text: 'x'.repeat(caso.largo) }] }]
+    const job = encargos({
+      session: {
+        get: async () => ({ parentID: 'ses_p', agent: 'rapido', outcome: 'succeeded' }),
+        context: async () => messages,
+      },
+    } as never)
+
+    hijosNativos().set(hija, { padre: 'ses_p', desde: indice + 10, actividad: 1, avisado: false, permisos: new Set() })
+
+    // When: completion is recorded and context is compacted; Then: bitacora returns the stored limit behavior.
+    await job.evento({ type: 'session.execution.succeeded', created: indice + 11, data: { sessionID: hija } })
+    messages.length = 0
+    const result = await job.bitacora({ id: hija })
+
+    expect(result.content).toContain(`Mensaje final:\n\n${caso.esperado}`)
+  }
+})
+
+test('un mensaje final nativo de una ejecución anterior no pisa el guardado', async () => {
+  // Given: the latest execution's final message is already stored.
+  const hija = `ses_${crypto.randomUUID()}`
+  const job = encargos({
+    session: {
+      get: async () => ({ parentID: 'ses_p', agent: 'rapido', outcome: 'succeeded' }),
+      context: async () => [{ type: 'assistant', content: [{ type: 'text', text: 'Old' }] }],
+    },
+  } as never)
+
+  proceso.db!.query('INSERT INTO mensajes_hijas (hija, desde, texto) VALUES ($hija, 20, $texto)').run({ hija, texto: 'Latest' })
+  hijosNativos().set(hija, { padre: 'ses_p', desde: 10, actividad: 1, avisado: false, permisos: new Set() })
+
+  // When: the older execution completes; Then: the latest stored message remains.
+  await job.evento({ type: 'session.execution.succeeded', created: 11, data: { sessionID: hija } })
+  expect(proceso.db!.query('SELECT texto FROM mensajes_hijas WHERE hija = $hija').get({ hija })).toEqual({ texto: 'Latest' })
+})

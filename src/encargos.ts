@@ -36,6 +36,7 @@ const destinos = new Set<string>(['critico', 'oracle'])
 
 const PLAZO_ESTANCADO = 30 * 60_000
 const TOPE_RESULTADO = 4_000
+const TOPE_MENSAJE_FINAL = 32_000
 
 const recortar = (texto: string, tope: number) =>
   texto.length > tope ? `${texto.slice(0, tope)}\n[… recortado, ${texto.length - tope} caracteres más]` : texto
@@ -568,7 +569,7 @@ export function encargos(ctx: Ctx) {
                   .query(`INSERT INTO mensajes_hijas (hija, desde, texto) VALUES ($hija, $desde, $texto)
                     ON CONFLICT (hija) DO UPDATE SET desde = excluded.desde, texto = excluded.texto
                     WHERE excluded.desde >= mensajes_hijas.desde`)
-                  .run({ hija, desde: nativo.desde, texto }),
+                  .run({ hija, desde: nativo.desde, texto: recortar(texto, TOPE_MENSAJE_FINAL) }),
               )
             }
           } catch (error) {
