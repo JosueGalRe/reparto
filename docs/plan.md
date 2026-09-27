@@ -385,6 +385,7 @@ Deja el código a la altura de las convenciones de `AGENTS.md` sin cambiar compo
 
 - Los dobles de `test/encargos.test.ts` pasan a ser interfaces estructurales mínimas: tienen solo los métodos que se consumen y los métodos inesperados fallan.
 - Sin barrels, sin repositorios genéricos y sin clases.
+- El campo del singleton cambia de `hijosNativos` a `hijasNativas` y no hay alias: tras un hot reload, el módulo nuevo no ve el mapa viejo. Se publica sin hijas en curso y se reinicia el servidor diario.
 - **Escenarios:**
   - Los tests de CAS, eventos tardíos, bitácora y permisos siguen en verde.
   - `process.ts` solo importa tipos.
@@ -424,6 +425,6 @@ Deja el código a la altura de las convenciones de `AGENTS.md` sin cambiar compo
 - **API de V2 en movimiento**: 2.0.x todavía cambia. Se fija la versión y, en cada upgrade, se hace un diff de tipos del SDK y también un diff del schema de las tools nativas sacado del binario, y se vuelven a correr los escenarios de las rebanadas afectadas. Un grep del binario con nombres de otra tool no sirve como sonda (ADR 0013).
 - **Tool bridge de `claude-code`**: S11 pasó con 2.0.16 y `opencode-claude` 0.14.0. Se vuelve a probar con cada upgrade de cualquiera de los dos.
 - **Hooks experimentales**: la cuota de `openai` solo se ve en `experimental.ws.receive` (S3). Si ese hook cambia, la baja de OpenAI cae en `plazoBaja` en lugar del reset real.
-- **OpenChamber y el agente por defecto**: OpenChamber no usa `AgentEditor.default` y abre en el agente guardado o en `plan` (S10). El director hay que elegirlo una vez a mano; el hook `prompt` igual le impone su actor.
+- **OpenChamber y el agente por defecto**: OpenChamber no usa `AgentEditor.default` y abre en el agente guardado o en `plan` (S10). El director hay que elegirlo una vez a mano; el hook `prompt` igual le impone su actor. Además, en una hija el selector del composer sigue mostrando el modelo heredado del padre después de que reparto impone el actor; el modelo que corre es el del actor ("<modelo> is thinking"). Falta sondear si escribir desde ese composer manda el modelo viejo en el mensaje.
 - **Convivencia con OMO en desarrollo**: los nombres de tools y agentes en español no chocan con los de OMO, pero los dos plugins registrarían hooks de sesión sobre las mismas sesiones. Por eso se desarrolla con la config alternativa de S0 hasta el corte.
 - **Encargos en background y reinicios**: un encargo vive en el proceso del servidor que lo creó (S15). Si ese servidor se detiene, la hija nativa queda huérfana: no hay reconciliación ni marcado `fallido` (ADR 0013). El padre la ve sin respuesta y decide.
