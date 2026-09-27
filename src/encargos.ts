@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import type { Plugin } from "@opencode/plugin";
 import type { ToolContext } from "@opencode/plugin/promise/tool";
 import { etiqueta, modelRef, resolver } from "./actores.ts";
+import { bajasVigentes, deBaja } from "./bajas.ts";
 import { papeles } from "./agentes.ts";
 import type { Config } from "./config.ts";
 import { db, write } from "./db.ts";
@@ -117,7 +118,23 @@ function soltarCupo(id: number) {
   log.info("cola: libera", { proveedor, id, corriendo: c.corriendo, enEspera: c.espera.length });
 }
 
-const abiertos = () => (proceso.abiertos ??= new Map());
+/**
+ * Un encargo que cambia de actor a otro proveedor (1.8) pasa su cupo a la cola nueva. Si está llena la excede:
+ * esperar un cupo dentro de `retry` podría trabarse con cambios cruzados.
+ */
+// ponytail: exceso por suplencia; cola estricta si provoca 429 propios
+export function moverCupo(id: number, proveedor: string, limite: number) {
+  const anterior = proceso.cupos?.get(id);
+  if (!anterior || anterior === proveedor) return;
+  soltarCupo(id);
+  const c = cola(proveedor);
+  c.corriendo++;
+  proceso.cupos!.set(id, proveedor);
+  if (c.corriendo > limite) log.warn("cola: exceso por suplencia", { id, de: anterior, a: proveedor, corriendo: c.corriendo, limite });
+  else log.info("cola: cupo movido", { id, de: anterior, a: proveedor, corriendo: c.corriendo, limite });
+}
+
+export const abiertos = () => (proceso.abiertos ??= new Map());
 
 // ---------- Encargos ----------
 
@@ -173,12 +190,13 @@ export function encargos(ctx: Ctx, config: Config) {
   }
 
   function textoAviso(e: Encargo, ultimoActor: string) {
-    const cabeza = `[reparto] Encargo ${e.hija} (${e.a}, ${ultimoActor})`;
+    const suplente = ultimoActor.replace(/#default$/, "") !== e.actor.replace(/#default$/, "") ? `; entró como suplente en lugar de ${e.actor}` : "";
+    const cabeza = `[reparto] Encargo ${e.hija} (${e.a}, ${ultimoActor}${suplente})`;
     switch (e.estado) {
       case "terminado":
         return `${cabeza} terminado.\n\n${recortar(e.mensaje_final ?? "", TOPE_AVISO)}\n\n(bitacora({ id: "${e.hija}" }) para ver sus tool calls)`;
       case "fallido":
-        return `${cabeza} fallido: ${e.error}.${e.mensaje_final ? `\n\nÚltimo mensaje:\n${recortar(e.mensaje_final, TOPE_AVISO)}` : ""}`;
+        return `${cabeza} fallido: ${e.error?.replace(/[.\s]+$/, "")}.${e.mensaje_final ? `\n\nÚltimo mensaje:\n${recortar(e.mensaje_final, TOPE_AVISO)}` : ""}`;
       case "interrumpido":
         return `${cabeza} interrumpido.`;
       default:
@@ -260,6 +278,7 @@ export function encargos(ctx: Ctx, config: Config) {
     let hija: string;
     let a: string;
     let actor: string;
+    let suplencia: string | undefined;
     if (args.sesion) {
       const previo = db().query("SELECT * FROM encargos WHERE hija = $hija ORDER BY id DESC LIMIT 1").get({ hija: args.sesion }) as Encargo | null;
       if (!previo) throw new Error(`${args.sesion} no es un encargo de reparto`);
@@ -269,8 +288,12 @@ export function encargos(ctx: Ctx, config: Config) {
       actor = etiquetaRef(s.model);
     } else {
       if (!destinos.has(args.a!)) throw new Error(`"${args.a}" no es un agente ni un papel al que se pueda delegar (${[...destinos].join(", ")})`);
-      const elegido = resolver(validacion, args.a!);
-      if (!elegido) throw new Error(`"${args.a}" está desactivado: no tiene actores válidos`);
+      if (!validacion.actores.has(args.a!)) throw new Error(`"${args.a}" está desactivado: no tiene actores válidos`);
+      const bajas = bajasVigentes(db());
+      const elegido = resolver(validacion, args.a!, deBaja(bajas));
+      if (!elegido)
+        throw new Error(`todos los actores de "${args.a}" están de baja: ${bajas.map((b) => `${b.id} hasta ${new Date(b.hasta).toISOString()}`).join(", ")}`);
+      if (elegido !== validacion.actores.get(args.a!)![0]) suplencia = `el titular está de baja; entra ${etiqueta(elegido)}`;
       const s = await ctx.session.create({
         title: `${args.a}: ${args.prompt.split("\n")[0]!.slice(0, 60)}`,
         agent: args.a,
@@ -298,12 +321,13 @@ export function encargos(ctx: Ctx, config: Config) {
     });
     if (id === 0) throw new Error(`encargo ya corriendo: ${hija}`);
     if (id === undefined) throw new Error("no se pudo registrar el encargo (SQLite); ver el log de reparto");
-    log.info("encargo creado", { id, hija, padre: tool.sessionID, a, actor, background: !!args.background, retoma: !!args.sesion });
+    log.info("encargo creado", { id, hija, padre: tool.sessionID, a, actor, background: !!args.background, retoma: !!args.sesion, suplencia });
+    const nota = suplencia ? ` (${suplencia})` : "";
 
     if (args.background) {
       void correr(id, args.prompt, args.skills);
       return {
-        content: `Encargo ${hija} lanzado en background a ${a} (${actor}). Te llega un aviso cuando termine, falle, lo interrumpan o quede estancado; no hace falta consultarlo.`,
+        content: `Encargo ${hija} lanzado en background a ${a} (${actor})${nota}. Te llega un aviso cuando termine, falle, lo interrumpan o quede estancado; no hace falta consultarlo.`,
         metadata: { encargo: id, hija },
       };
     }
@@ -328,7 +352,7 @@ export function encargos(ctx: Ctx, config: Config) {
     if (isOpen(e)) return { content: `Encargo ${hija} (${a}) sigue ${e.estado}; te llega un aviso cuando cierre.`, metadata: { encargo: id, hija } };
     write(db(), "encargo sincrónico entregado", () => db().query("UPDATE encargos SET aviso_pendiente = 0 WHERE id = $id").run({ id }));
     const cuerpo = e.estado === "terminado" ? recortar(e.mensaje_final ?? "", TOPE_AVISO) : e.error ?? e.estado;
-    return { content: `Encargo ${hija} (${a}, ${actor}) ${e.estado}.\n\n${cuerpo}`, metadata: { encargo: id, hija, estado: e.estado } };
+    return { content: `Encargo ${hija} (${a}, ${actor})${nota} ${e.estado}.\n\n${cuerpo}`, metadata: { encargo: id, hija, estado: e.estado } };
   }
 
   /** Interrumpe un encargo abierto cuya hija tenga `metadata.padre` = la sesión que llama. */

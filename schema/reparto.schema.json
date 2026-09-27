@@ -5,6 +5,7 @@
   "additionalProperties": false,
   "properties": {
     "$schema": { "type": "string" },
+    "fallosInternos": { "type": "integer", "minimum": 1, "description": "Fallos 5xx o timeout seguidos de un actor antes de que entre su suplente. Default 3." },
     "agentes": {
       "type": "object",
       "additionalProperties": { "$ref": "#/$defs/reparto" },

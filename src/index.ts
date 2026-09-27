@@ -1,7 +1,7 @@
 import { Plugin } from "@opencode/plugin";
 import { etiqueta, modelRef, publicar, resolver, validar } from "./actores.ts";
 import { conShellDeLectura, motivoNegado, registrar, ruteo } from "./agentes.ts";
-import { bajasVigentes } from "./bajas.ts";
+import { bajasVigentes, deBaja, suplencias } from "./bajas.ts";
 import { readCatalog } from "./catalog.ts";
 import { configPath, loadConfig } from "./config.ts";
 import { db } from "./db.ts";
@@ -49,20 +49,29 @@ export default Plugin.define({
 
       await ctx.agent.transform(registrar);
 
-      // Primer turno de cada sesión primaria: sale con el actor resuelto. Después se respeta el modelo que tenga
-      // la sesión, así que un cambio a mano no se revierte. 1.8 agrega el cambio por inicio o fin de una baja.
+      // Sesiones primarias: el actor resuelto se impone en el primer turno y en el primer turno después de que
+      // empiece o termine una baja que lo cambie. El resto del tiempo se respeta el modelo de la sesión, así que un
+      // cambio a mano no se revierte. Lo impuesto va en ctx.storage para que una recarga o un reinicio no lo tomen
+      // como primer turno.
       await ctx.session.hook("prompt", async (input) => {
         try {
           const sesion = await ctx.session.get({ sessionID: input.sessionID });
           const agente = sesion.agent ?? "director";
           if (!primarios.has(agente)) return;
           const clave = `impuesto/${input.sessionID}/${agente}`;
-          if (await ctx.storage.get(clave)) return;
-          const actor = proceso.validacion && resolver(proceso.validacion, agente);
+          const actor = proceso.validacion && resolver(proceso.validacion, agente, deBaja(bajasVigentes(db())));
           if (!actor) return log.warn("sin actor para imponer", { sessionID: input.sessionID, agente });
+          const previo = (await ctx.storage.get(clave)) as { actor?: string } | undefined;
+          if (previo?.actor === etiqueta(actor)) return;
           await ctx.session.switchModel({ sessionID: input.sessionID, model: modelRef(actor) });
           await ctx.storage.set(clave, { actor: etiqueta(actor) });
-          log.info("actor impuesto", { sessionID: input.sessionID, agente, actor: etiqueta(actor), antes: sesion.model ?? null });
+          log.info("actor impuesto", {
+            sessionID: input.sessionID,
+            agente,
+            actor: etiqueta(actor),
+            motivo: previo ? `cambió el actor resuelto (antes ${previo.actor})` : "primer turno",
+            antes: sesion.model ?? null,
+          });
         } catch (error) {
           log.error("hook prompt falló", { sessionID: input.sessionID, error: String(error) });
         }
@@ -90,6 +99,29 @@ export default Plugin.define({
         await ctx.session.hook("model.request", (input) => {
           log.info("debug: model.request", { sessionID: input.sessionID, agent: input.agent, kind: input.kind, model: input.model });
         });
+
+      const s = suplencias(ctx, config);
+      // El cuerpo del error corrige la clasificación de V2 y trae el reset (S3). Solo requests `primary`.
+      await ctx.session.hook("http.response", async (x) => {
+        if (x.kind !== "primary" || x.response.ok) return;
+        const cuerpo = await x.response
+          .clone()
+          .text()
+          .catch(() => "");
+        s.guardar(x.sessionID, x.kind, x.model, cuerpo, Object.fromEntries(x.response.headers));
+      });
+      // openai va por WebSocket: su error llega como un frame (S3). Hook experimental: si cambia, la baja cae en plazoBaja.
+      await ctx.session.hook("experimental.ws.receive", (x) => {
+        if (x.kind !== "primary" || !x.frame.includes('"error"')) return;
+        if (x.frame.startsWith('{"type":"error"')) s.guardar(x.sessionID, x.kind, x.model, x.frame, {});
+      });
+      await ctx.session.hook("retry", async (r) => {
+        try {
+          await s.retry(r);
+        } catch (error) {
+          log.error("hook retry falló", { sessionID: r.sessionID, error: String(error) });
+        }
+      });
 
       const e = encargos(ctx, config);
       // codemode: false, o el modelo solo las alcanza desde `execute` (S11)

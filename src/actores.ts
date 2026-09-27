@@ -57,8 +57,21 @@ export function modelRef(actor: Actor) {
   return { providerID: actor.model.slice(0, i), id: actor.model.slice(i + 1), ...(actor.variant ? { variant: actor.variant } : {}) };
 }
 
-/** Primer actor válido. 1.8 agrega las bajas. */
-export const resolver = (validacion: Validacion, nombre: string): Actor | undefined => validacion.actores.get(nombre)?.[0];
+/** Primer actor válido que no esté fuera (de baja). */
+export const resolver = (validacion: Validacion, nombre: string, fuera: (actor: Actor) => boolean = () => false): Actor | undefined =>
+  validacion.actores.get(nombre)?.find((actor) => !fuera(actor));
+
+type Ref = { providerID: string; id: string; variant?: string };
+
+/** ¿La sesión corre con este actor? V2 reporta `default` como variant cuando no se pidió ninguno. */
+export const esActor = (actor: Actor, modelo: Ref) =>
+  actor.model === `${modelo.providerID}/${modelo.id}` && (actor.variant ?? "default") === (modelo.variant ?? "default");
+
+/** Suplente: el primer actor después del actual que no esté fuera. Si el actual no es de la lista, el primero disponible. */
+export function siguiente(validacion: Validacion, nombre: string, actual: Ref, fuera: (actor: Actor) => boolean): Actor | undefined {
+  const lista = validacion.actores.get(nombre) ?? [];
+  return lista.slice(lista.findIndex((actor) => esActor(actor, actual)) + 1).find((actor) => !fuera(actor) && !esActor(actor, actual));
+}
 
 // Todas las instancias del proceso (una por location) validan la misma config contra el mismo catálogo.
 export function publicar(nueva: Validacion) {

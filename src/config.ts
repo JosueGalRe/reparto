@@ -18,6 +18,7 @@ export interface Proveedor {
 }
 
 export interface Config {
+  fallosInternos?: number;
   agentes?: Record<string, Reparto>;
   papeles?: Record<string, Reparto>;
   proveedores?: Record<string, Proveedor>;

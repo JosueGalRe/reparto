@@ -15,6 +15,7 @@
         ]
       }
     },
+    "file:///home/josuegalre/projects/reparto/scripts/fault-plugin",
     {
       "package": "file:///home/josuegalre/projects/reparto",
       "options": {

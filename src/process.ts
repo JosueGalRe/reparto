@@ -1,5 +1,6 @@
 import type { Database } from "bun:sqlite";
 import type { Validacion } from "./actores.ts";
+import type { ErrorCrudo } from "./bajas.ts";
 
 /** Estado compartido por todas las instancias del proceso. */
 export interface Proceso {
@@ -15,6 +16,10 @@ export interface Proceso {
   abiertos?: Map<string, { id: number; actividad: number; estancado?: boolean }>;
   /** Encargos que alguna instancia está cerrando, para no pedir su outcome dos veces. */
   cerrando?: Set<number>;
+  /** Último error `primary` por sesión (http.response o ws.receive), hasta que lo consume el `retry`. */
+  errores?: Map<string, ErrorCrudo>;
+  /** Fallos 5xx seguidos del actor actual, por sesión. */
+  fallos?: Map<string, { actor: string; n: number }>;
 }
 
 // En 2.0.18 cada location importa su propia copia del módulo, pero todas comparten globalThis (sondas.md, S15).
