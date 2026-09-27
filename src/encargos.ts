@@ -4,7 +4,7 @@ import type { ToolContext } from "@opencode/plugin/promise/tool";
 import { etiqueta, modelRef, resolver } from "./actores.ts";
 import { bajasVigentes, deBaja } from "./bajas.ts";
 import { papeles } from "./agentes.ts";
-import type { Config } from "./config.ts";
+import type { Actor, Config } from "./config.ts";
 import { db, write } from "./db.ts";
 import { log } from "./log.ts";
 import { proceso } from "./process.ts";
@@ -282,7 +282,7 @@ export function encargos(ctx: Ctx, config: Config) {
     }
   }
 
-  async function delegar(input: unknown, tool: ToolContext) {
+  async function delegar(input: unknown, tool: ToolContext, actorElegido?: Actor) {
     const args = parsear(input);
     const validacion = proceso.validacion;
     if (!validacion) throw new Error("reparto todavía no validó los actores contra el catálogo; reintenta en unos segundos");
@@ -302,12 +302,12 @@ export function encargos(ctx: Ctx, config: Config) {
       a = previo.a;
       actor = etiquetaRef(s.model);
     } else {
-      if (!destinos.has(args.a!)) throw new Error(`"${args.a}" no es un agente ni un papel al que se pueda delegar (${[...destinos].join(", ")})`);
-      if (!puedeDelegar(padre.agent, args.a!))
+      if (!destinos.has(args.a!) && !(actorElegido && args.a === "critico")) throw new Error(`"${args.a}" no es un agente ni un papel al que se pueda delegar (${[...destinos].join(", ")})`);
+      if (!actorElegido && !puedeDelegar(padre.agent, args.a!))
         throw new Error("dramaturgo solo delega investigación de lectura a utilero, archivista u oracle");
       if (!validacion.actores.has(args.a!)) throw new Error(`"${args.a}" está desactivado: no tiene actores válidos`);
       const bajas = bajasVigentes(db());
-      const elegido = resolver(validacion, args.a!, deBaja(bajas));
+      const elegido = actorElegido ?? resolver(validacion, args.a!, deBaja(bajas));
       if (!elegido)
         throw new Error(`todos los actores de "${args.a}" están de baja: ${bajas.map((b) => `${b.id} hasta ${new Date(b.hasta).toISOString()}`).join(", ")}`);
       if (elegido !== validacion.actores.get(args.a!)![0]) suplencia = `el titular está de baja; entra ${etiqueta(elegido)}`;

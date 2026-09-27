@@ -50,6 +50,31 @@ CREATE TABLE IF NOT EXISTS bitacora (
   hora INTEGER NOT NULL,
   PRIMARY KEY (hija, mensaje, llamada)
 );
+CREATE TABLE IF NOT EXISTS versiones (
+  plan TEXT NOT NULL,
+  hash TEXT NOT NULL,
+  contenido TEXT NOT NULL,
+  PRIMARY KEY (plan, hash)
+);
+CREATE TABLE IF NOT EXISTS ensayos (
+  plan TEXT NOT NULL,
+  ronda INTEGER NOT NULL,
+  hash TEXT NOT NULL,
+  revisor TEXT NOT NULL,
+  actor TEXT NOT NULL,
+  veredicto TEXT NOT NULL,
+  PRIMARY KEY (plan, ronda, revisor)
+);
+CREATE TABLE IF NOT EXISTS acta (
+  plan TEXT NOT NULL,
+  id INTEGER NOT NULL,
+  objecion TEXT NOT NULL,
+  causa TEXT NOT NULL,
+  condicion_cierre TEXT NOT NULL,
+  ronda_entrada INTEGER NOT NULL,
+  estado TEXT NOT NULL CHECK (estado IN ('abierto', 'cerrado')),
+  PRIMARY KEY (plan, id)
+);
 `;
 
 export function openDb(path: string): Database {

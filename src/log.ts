@@ -2,7 +2,7 @@ import { appendFileSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
-export const dataDir = join(process.env.XDG_DATA_HOME || join(homedir(), ".local", "share"), "reparto");
+export const dataDir = process.env.REPARTO_DATA_DIR || join(process.env.XDG_DATA_HOME || join(homedir(), ".local", "share"), "reparto");
 const file = join(dataDir, "reparto.log");
 
 function write(level: "info" | "warn" | "error", message: string, data?: Record<string, unknown>) {

@@ -22,4 +22,4 @@ Use this exact structure (replace the placeholders, repeat the task block for T2
 - Verification: <real command or observation that checks the result>
 ```
 
-After writing, tell Bryan the plan path and summarize the decisions it records. Do not execute the plan. An ensayo general and estreno are separate steps; do not claim either happened.
+After writing, tell Bryan the plan path and summarize the decisions it records. When asked to review, call `ensayar({ plan: ".reparto/planes/<slug>.md" })` once per round. Read research encargos fully with `bitacora`. Fix only accepted objections between rounds. Do not execute the plan. An ensayo general and estreno are separate steps; do not claim either happened unless run.

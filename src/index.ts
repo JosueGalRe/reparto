@@ -6,6 +6,7 @@ import { readCatalog } from "./catalog.ts";
 import { configPath, loadConfig } from "./config.ts";
 import { db } from "./db.ts";
 import { destinos, encargos } from "./encargos.ts";
+import { ensayo } from "./ensayo.ts";
 import { log } from "./log.ts";
 import { escribirPendientes, estados, formatear, leerPendientes, parsearItems } from "./pendientes.ts";
 import { proceso } from "./process.ts";
@@ -125,6 +126,7 @@ export default Plugin.define({
       });
 
       const e = encargos(ctx, config);
+      const ensayar = ensayo(ctx, e);
       // codemode: false, o el modelo solo las alcanza desde `execute` (S11)
       await ctx.tool.transform((editor) => {
         editor.add({
@@ -162,6 +164,16 @@ export default Plugin.define({
           },
           options: { codemode: false },
           execute: (input) => e.bitacora(input),
+        });
+        editor.add({
+          name: "ensayar",
+          description: "Run one synchronous round of the ensayo general on a plan under .reparto/planes/. Fresh parallel critico and oracle encargos; returns verdicts and the acta.",
+          input: { type: "object", properties: { plan: { type: "string", description: "Relative plan path under .reparto/planes/." } }, required: ["plan"], additionalProperties: false },
+          options: { codemode: false },
+          execute: (input, tool) => {
+            if (!input || typeof input !== "object" || !("plan" in input) || typeof input.plan !== "string") throw new Error("ensayar: falta plan");
+            return ensayar({ plan: input.plan }, tool);
+          },
         });
         editor.add({
           name: "interrumpir",

@@ -81,6 +81,15 @@ test("utilero: shell abierto, edición y delegación negadas", () => {
   for (const tool of ["edit", "write", "patch", "subagent", "delegar", "interrumpir"]) expect(efecto(tool, "*")).toBe("deny");
 });
 
+test("dramaturgo puede ensayar y leer bitacora; critico sigue siendo de solo lectura", () => {
+  // Given: the effective permission rules for both agents.
+  const { dramaturgo, subagenteLectura } = permisos([]);
+  // When: the final matching rule is resolved; Then: only dramaturgo gets the ensayo tools.
+  for (const nombre of ["ensayar", "bitacora"]) expect(dramaturgo.findLast((r) => r.action === nombre || r.action === "*")?.effect).toBe("allow");
+  for (const nombre of ["edit", "write", "patch", "delegar", "ensayar"]) expect(subagenteLectura.findLast((r) => r.action === nombre || r.action === "*")?.effect).toBe("deny");
+  expect(subagenteLectura.findLast((r) => r.action === "shell" || r.action === "*")?.effect).toBe("allow");
+});
+
 test("ruteo: un papel desactivado no aparece en la tabla, y las exclusiones se listan", () => {
   const texto = ruteo({
     actores: new Map(),

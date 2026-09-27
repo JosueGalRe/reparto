@@ -36,7 +36,7 @@ function soloLectura(base: Rule[], extra: string[]): Rule[] {
 
 function dramaturgo(base: Rule[]): Rule[] {
   return [
-    ...soloLectura(base, ["question", "delegar"]),
+    ...soloLectura(base, ["question", "delegar", "bitacora", "ensayar"]),
     ...["edit", "write", "patch"].map((action) => ({ action, resource: ".reparto/planes/*", effect: "allow" as const })),
   ];
 }
@@ -71,6 +71,7 @@ const descripciones: Record<string, string> = {
   utilero: "Explores this repository and reports where things are. Read-only.",
   archivista: "Finds documentation and code outside the repository. Read-only.",
   oracle: "Read-only consultant for hard decisions: architecture, trade-offs, stubborn bugs.",
+  critico: "Read-only reviewer of plans in the ensayo general.",
   rapido: "Papel for mechanical, bounded changes with no design decision.",
   visual: "Papel for changes whose result a person sees.",
   protagonista: "Default papel for implementation that needs understanding the code first.",
@@ -93,7 +94,7 @@ export function registrar(editor: AgentEditor) {
 
   definir("director", "primary", `${guion("director")}\n\n${seccionShell}`, reglas.director);
   definir("dramaturgo", "primary", `${guion("dramaturgo")}\n\n${seccionShell}`, reglas.dramaturgo);
-  for (const id of ["utilero", "archivista", "oracle"]) definir(id, "subagent", guion(id), reglas.subagenteLectura);
+  for (const id of ["utilero", "archivista", "oracle", "critico"]) definir(id, "subagent", guion(id), reglas.subagenteLectura);
   // Los papeles no se invocan por nombre (no son agentes): se ocultan del `@`.
   for (const id of papeles) definir(id, "subagent", `${guion("papel")}\n\n${guion(id)}`, reglas.papel, true);
   editor.update("build", (agent) => {
