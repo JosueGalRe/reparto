@@ -70,7 +70,7 @@ test('a malformed reviewer leaves the round pending and relaunches fresh encargo
       VALUES (?, 'parent', 'critico', 'p/m', 0, 'terminado', ?, 'b', 1, '1', 0)`)
         .run(hija, launched === 1 ? 'VEREDICTO: OBJECIONES\nOBJECION: malformed' : 'VEREDICTO: APROBADO')
 
-      return { metadata: { hija } }
+      return hija
     },
   }
   const run = ensayo(ctx, dispatch as Parameters<typeof ensayo>[1])

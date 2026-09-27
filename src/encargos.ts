@@ -1,12 +1,10 @@
-import { etiqueta, modelRef, resolver } from './actores.ts'
-import { bajasVigentes, deBaja } from './bajas.ts'
+import { etiqueta, modelRef } from './actores.ts'
 import { db, write } from './db.ts'
 import { log } from './log.ts'
 import { proceso } from './process.ts'
 
 import type { Actor } from './config.ts'
 import type { Plugin } from '@opencode/plugin'
-import type { ToolContext } from '@opencode/plugin/promise/tool'
 
 export type Estado = 'en_cola' | 'corriendo' | 'terminado' | 'fallido' | 'interrumpido' | 'estancado'
 
@@ -16,16 +14,11 @@ export interface Encargo {
   padre: string
   a: string
   actor: string
-  background: number
   estado: Estado
   desde: number | null
   cerrado: number | null
   mensaje_final: string | null
   error: string | null
-  aviso_pendiente: number
-  boot_id: string
-  pid: number
-  starttime: string
   creado: number
 }
 
@@ -42,7 +35,6 @@ const permitidas: Record<Estado, readonly Estado[]> = {
 export const destinos = new Set<string>(['critico', 'oracle'])
 
 export const PLAZO_ESTANCADO = 30 * 60_000
-const TOPE_AVISO = 8_000
 const TOPE_RESULTADO = 4_000
 
 const recortar = (texto: string, tope: number) =>
@@ -58,7 +50,7 @@ export function tituloEncargo(agente: string, prompt: string): string {
 
 export const leer = (id: number) => db().query('SELECT * FROM encargos WHERE id = $id').get({ id }) as Encargo | null
 
-type Cambios = Partial<Pick<Encargo, 'desde' | 'cerrado' | 'mensaje_final' | 'error' | 'aviso_pendiente'>>
+type Cambios = Partial<Pick<Encargo, 'desde' | 'cerrado' | 'mensaje_final' | 'error'>>
 
 /** Transición atómica: solo la instancia que obtiene `changes = 1` sigue (y avisa). */
 export function transicion(encargo: Encargo, estado: Estado, cambios: Cambios = {}): boolean {
@@ -91,28 +83,38 @@ export const hijosNativos = () => (proceso.hijosNativos ??= new Map())
 
 // ---------- Encargos ----------
 
-type Ctx = Plugin.Context
+type Sesion = Awaited<ReturnType<Plugin.Context['session']['get']>>
+type Mensaje = Awaited<ReturnType<Plugin.Context['session']['context']>>[number]
 
-interface Entrada {
-  a?: string
-  prompt: string
+interface Ctx {
+  readonly session: {
+    get: (entrada: { sessionID: string }) => Promise<
+      Pick<Sesion, 'parentID' | 'agent' | 'model' | 'outcome' | 'title' | 'metadata' | 'location'> & {
+        readonly time: Pick<Sesion['time'], 'idle'>
+      }
+    >
+    create: (entrada: Parameters<Plugin.Context['session']['create']>[0]) => Promise<{ id: string }>
+    context: (entrada: { sessionID: string }) => Promise<
+      readonly (
+        | {
+            readonly type: 'assistant'
+            readonly content: readonly (
+              | { readonly type: 'text'; readonly text: string }
+              | { readonly type: 'reasoning' | 'tool' }
+            )[]
+          }
+        | { readonly type: Exclude<Mensaje['type'], 'assistant'> }
+      )[]
+    >
+    prompt: (entrada: Parameters<Plugin.Context['session']['prompt']>[0]) => Promise<unknown>
+    wait: (entrada: Parameters<Plugin.Context['session']['wait']>[0]) => Promise<void>
+    interrupt: (entrada: Parameters<Plugin.Context['session']['interrupt']>[0]) => Promise<unknown>
+  }
 }
 
-function parsear(input: unknown): Entrada {
-  const entrada = (input ?? {}) as Record<string, unknown>
-
-  if (typeof entrada.prompt !== 'string' || !entrada.prompt.trim()) {
-    throw new Error('delegar: falta `prompt`')
-  }
-
-  if (typeof entrada.a !== 'string') {
-    throw new Error('delegar: falta `a`')
-  }
-
-  return {
-    a: typeof entrada.a === 'string' ? entrada.a : undefined,
-    prompt: entrada.prompt,
-  }
+interface Entrada {
+  readonly a: string
+  readonly prompt: string
 }
 
 const etiquetaRef = (modelo: { providerID: string; id: string; variant?: string } | undefined) =>
@@ -248,7 +250,7 @@ export function encargos(ctx: Ctx) {
   }
 
   /** Pasa a corriendo y manda el prompt. */
-  async function correr(id: number, prompt: string, skills: string[] | undefined): Promise<boolean> {
+  async function correr(id: number, prompt: string): Promise<boolean> {
     const encargo = leer(id)!
     const desde = Date.now()
 
@@ -256,13 +258,12 @@ export function encargos(ctx: Ctx) {
       return false
     }
 
-    abiertos().set(encargo.hija, { id, actividad: desde })
+    abiertos().set(encargo.hija, { id })
 
     try {
       await ctx.session.prompt({
         sessionID: encargo.hija,
         text: prompt,
-        ...(skills?.length ? { skills: skills.map((skill) => ({ id: skill })) } : {}),
       })
 
       return true
@@ -282,8 +283,7 @@ export function encargos(ctx: Ctx) {
     }
   }
 
-  async function delegar(input: unknown, tool: ToolContext, actorElegido?: Actor) {
-    const args = parsear(input)
+  async function delegar(args: Entrada, tool: { sessionID: string; signal: AbortSignal }, actorElegido: Actor) {
     const validacion = proceso.validacion
 
     if (!validacion) {
@@ -294,38 +294,29 @@ export function encargos(ctx: Ctx) {
 
     let suplencia: string | undefined
 
-    if (!destinos.has(args.a!)) {
+    if (!destinos.has(args.a)) {
       throw new Error(`"${args.a}" no es un agente ni un papel al que se pueda delegar (${[...destinos].join(', ')})`)
     }
 
-    if (!validacion.actores.has(args.a!)) {
+    if (!validacion.actores.has(args.a)) {
       throw new Error(`"${args.a}" está desactivado: no tiene actores válidos`)
     }
 
-    const bajas = bajasVigentes(db())
-    const elegido = actorElegido ?? resolver(validacion, args.a!, deBaja(bajas))
-
-    if (!elegido) {
-      throw new Error(
-        `todos los actores de "${args.a}" están de baja: ${bajas.map((baja) => `${baja.id} hasta ${new Date(baja.hasta).toISOString()}`).join(', ')}`,
-      )
-    }
-
-    if (elegido !== validacion.actores.get(args.a!)?.[0]) {
-      suplencia = `el titular está de baja; entra ${etiqueta(elegido)}`
+    if (actorElegido !== validacion.actores.get(args.a)?.[0]) {
+      suplencia = `el titular está de baja; entra ${etiqueta(actorElegido)}`
     }
 
     const sesion = await ctx.session.create({
-      title: tituloEncargo(args.a!, args.prompt),
+      title: tituloEncargo(args.a, args.prompt),
       agent: args.a,
-      model: modelRef(elegido),
+      model: modelRef(actorElegido),
       location: { directory: padre.location.directory },
       metadata: { padre: tool.sessionID },
     })
 
     const hija = sesion.id
-    const agente = args.a!
-    const actor = etiqueta(elegido)
+    const agente = args.a
+    const actor = etiqueta(actorElegido)
 
     const fila = {
       hija,
@@ -338,31 +329,16 @@ export function encargos(ctx: Ctx) {
       pid: process.pid,
       starttime: '',
     }
-    // Chequeo e INSERT en la misma transacción IMMEDIATE: dos retomas simultáneas, aun desde procesos distintos, no pasan las dos.
-    const id = write(db(), 'crear encargo', () => {
-      if (
-        db()
-          .query("SELECT 1 FROM encargos WHERE hija = $hija AND estado IN ('en_cola', 'corriendo', 'estancado')")
-          .get({ hija })
-      ) {
-        return 0
-      }
-
-      db().query("UPDATE permisos SET estado = 'respondido' WHERE hija = $hija AND estado = 'pendiente'").run({ hija })
-
-      return Number(
+    const id = write(db(), 'crear encargo', () =>
+      Number(
         db()
           .query(
             `INSERT INTO encargos (hija, padre, a, actor, background, estado, boot_id, pid, starttime, creado)
              VALUES ($hija, $padre, $a, $actor, $background, 'en_cola', $boot_id, $pid, $starttime, $creado)`,
           )
           .run(fila).lastInsertRowid,
-      )
-    })
-
-    if (id === 0) {
-      throw new Error(`encargo ya corriendo: ${hija}`)
-    }
+      ),
+    )
 
     if (id === undefined) {
       throw new Error('no se pudo registrar el encargo (SQLite); ver el log de reparto')
@@ -376,7 +352,6 @@ export function encargos(ctx: Ctx) {
       actor,
       suplencia,
     })
-    const nota = suplencia ? ` (${suplencia})` : ''
 
     const interrumpir = () => {
       const encargo = leer(id)
@@ -393,7 +368,7 @@ export function encargos(ctx: Ctx) {
     tool.signal.addEventListener('abort', interrumpir, { once: true })
 
     try {
-      if (await correr(id, args.prompt, undefined)) {
+      if (await correr(id, args.prompt)) {
         await ctx.session.wait({ sessionID: hija })
         await cerrar(id)
       }
@@ -406,26 +381,11 @@ export function encargos(ctx: Ctx) {
       tool.signal.removeEventListener('abort', interrumpir)
     }
 
-    const encargo = leer(id)!
-
-    if (isOpen(encargo)) {
-      return {
-        content: `Encargo ${hija} (${agente}) sigue ${encargo.estado}.`,
-        metadata: { encargo: id, hija },
-      }
-    }
-
-    const cuerpo =
-      encargo.estado === 'terminado' ? recortar(encargo.mensaje_final ?? '', TOPE_AVISO) : (encargo.error ?? encargo.estado)
-
-    return {
-      content: `Encargo ${hija} (${agente}, ${actor})${nota} ${encargo.estado}.\n\n${cuerpo}`,
-      metadata: { encargo: id, hija, estado: encargo.estado },
-    }
+    return hija
   }
 
   /** Interrumpe un encargo abierto cuya hija tenga `metadata.padre` = la sesión que llama. */
-  async function interrumpir(input: unknown, tool: ToolContext) {
+  async function interrumpir(input: unknown, tool: { sessionID: string }) {
     const entrada = (input ?? {}) as { id?: unknown }
 
     if (typeof entrada.id !== 'string') {
@@ -654,8 +614,6 @@ export function encargos(ctx: Ctx) {
 
       const { id, action, resources, sessionID } = data
 
-      actividad()
-
       if (registrarPermiso({ id, action, resources, sessionID })) {
         void (async () => {
           try {
@@ -681,36 +639,6 @@ export function encargos(ctx: Ctx) {
       }
 
       return
-    }
-
-    if (ev.type === 'permission.replied' && data?.requestID && data.sessionID) {
-      const { requestID, sessionID } = data
-
-      actividad()
-      write(db(), 'permiso respondido', () =>
-        db()
-          .query("UPDATE permisos SET estado = 'respondido' WHERE request_id = $id AND hija = $hija")
-          .run({ id: requestID, hija: sessionID }),
-      )
-
-      return
-    }
-
-    if (/^session\.(step|tool|text|reasoning)\./.test(ev.type)) {
-      actividad()
-    }
-
-    function actividad() {
-      abierto.actividad = Date.now()
-
-      if (abierto.estancado) {
-        const encargo = leer(abierto.id)
-
-        if (encargo?.estado === 'estancado' && transicion(encargo, 'corriendo')) {
-          abierto.estancado = false
-          log.info('encargo reanudado', { id: encargo.id, hija: encargo.hija })
-        }
-      }
     }
   }
 

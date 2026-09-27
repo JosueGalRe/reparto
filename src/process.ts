@@ -8,8 +8,8 @@ export interface Proceso {
   /** Lo último que se logueó de la validación, para no repetirlo en cada location ni en cada model.updated. */
   firma: string
   db?: Database
-  /** Hijas con un encargo abierto en este proceso, con su última actividad. */
-  abiertos?: Map<string, { id: number; actividad: number; estancado?: boolean }>
+  /** Hijas con un encargo abierto en este proceso. */
+  abiertos?: Map<string, { id: number }>
   /** Hijas nativas activas; el evento de ejecución cierra su vigilancia. */
   hijosNativos?: Map<string, { padre: string; desde: number; actividad: number; avisado: boolean; permisos: Set<string> }>
   /** Encargos que alguna instancia está cerrando, para no pedir su outcome dos veces. */
