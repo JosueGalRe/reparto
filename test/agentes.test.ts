@@ -39,7 +39,7 @@ test('director: la lista permitida va después de negar todo, y las restriccione
   expect(ultima('pty_spawn')).toBe('deny')
   expect(ultima('execute')).toBe('deny')
   expect(ultima('delegar')).toBe('deny')
-  expect(ultima('subagent')).toBe('allow')
+  expect(ultima('subagent', 'general')).toBe('deny')
   expect(ultima('read', '*.env')).toBe('ask')
 
   for (const action of ['question', 'subagent', 'delegar', 'context7_*', 'grep_app_*']) {
@@ -122,7 +122,7 @@ test('dramaturgo puede ensayar y leer bitacora; critico sigue siendo de solo lec
   expect(subagenteLectura.findLast((regla) => regla.action === 'shell' || regla.action === '*')?.effect).toBe('allow')
 })
 
-test('director, regidor y build permiten subagent pero no delegar; dramaturgo solo investiga', () => {
+test('director y regidor limitan subagent a agentes de reparto; dramaturgo solo investiga', () => {
   // Given: the registered agents, including build's permissive base.
   const { director, regidor, dramaturgo } = permisos([{ action: '*', resource: '*', effect: 'allow' }])
   const effect = (rules: typeof director, action: string, resource: string) =>
@@ -130,9 +130,16 @@ test('director, regidor y build permiten subagent pero no delegar; dramaturgo so
       (rule) => (rule.action === action || rule.action === '*') && (rule.resource === resource || rule.resource === '*'),
     )?.effect
 
-  // When: the native tool checks its destination; Then: only research targets pass for dramaturgo.
+  // When: the native tool checks its destination; Then: reparto targets pass and native agents do not.
   for (const rules of [director, regidor]) {
-    expect(effect(rules, 'subagent', 'rapido')).toBe('allow')
+    for (const agente of ['rapido', 'protagonista', 'utilero', 'oracle']) {
+      expect(effect(rules, 'subagent', agente)).toBe('allow')
+    }
+
+    for (const agente of ['general', 'explore']) {
+      expect(effect(rules, 'subagent', agente)).toBe('deny')
+    }
+
     expect(effect(rules, 'delegar', '*')).toBe('deny')
   }
 

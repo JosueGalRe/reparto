@@ -68,6 +68,12 @@ function dramaturgo(base: Rule[]): Rule[] {
   ]
 }
 
+const subagentesDeReparto = ['utilero', 'archivista', 'oracle', ...papeles].map((resource) => ({
+  action: 'subagent',
+  resource,
+  effect: 'allow' as const,
+}))
+
 function subagenteSoloLectura(base: Rule[]): Rule[] {
   const restricciones = base.filter((rule) => rule.action === 'read' || rule.action === 'external_directory')
 
@@ -86,11 +92,16 @@ export const seccionShell = [
 export function permisos(base: Rule[]) {
   return {
     director: [
-      ...soloLectura(base, ['question', 'subagent', 'interrumpir', 'bitacora', 'pendientes']),
+      ...soloLectura(base, ['question', 'interrumpir', 'bitacora', 'pendientes']),
+      ...subagentesDeReparto,
       ...deny(...mcpActions),
       ...allow(mcpActions[0]),
     ],
-    regidor: [...soloLectura(base, ['question', 'subagent', 'interrumpir', 'bitacora', 'pendientes']), ...deny(...mcpActions)],
+    regidor: [
+      ...soloLectura(base, ['question', 'interrumpir', 'bitacora', 'pendientes']),
+      ...subagentesDeReparto,
+      ...deny(...mcpActions),
+    ],
     dramaturgo: [...dramaturgo(base), ...deny(...mcpActions)],
     subagenteLectura: [...subagenteSoloLectura(base), ...deny(...mcpActions)],
     archivista: [...subagenteSoloLectura(base), ...deny(...mcpActions), ...allow(...mcpActions)],
