@@ -5,3 +5,5 @@ set -euo pipefail
 git -C ~/.local/share/reparto/estable merge --ff-only main
 cd ~/.local/share/reparto/estable
 bun install --frozen-lockfile
+# Trigger setup again so runtime-read guiones are reloaded.
+touch "$PWD/server.ts"
