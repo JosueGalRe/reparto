@@ -77,6 +77,21 @@ test('reset: segundos, ms, ISO y retry-after relativo', () => {
   expect(reset({ actor: '', cuerpo: 'no es json', headers: {} }, ahora)).toBeUndefined()
 })
 
+test.each([
+  'null',
+  '[]',
+  '{"error":[],"headers":[]}',
+  '{"error":"claude_session_limit","headers":"texto"}',
+  '{"error":{"code":42,"resets_at":[],"resets_in_seconds":{}}}',
+])('el cuerpo mal formado no corrige la clasificación ni impide el reset HTTP: %s', (cuerpo) => {
+  // Given: datos del proveedor sin la forma esperada y un header HTTP válido.
+  const entrada = { actor: 'p/m', cuerpo, headers: { 'Retry-After': '60' } }
+
+  // When: se clasifica y busca reset; Then: solo cuentan datos de tipo válido.
+  expect(clasificar({ type: 'provider.rate-limit' }, entrada, ahora)).toEqual({ tipo: 'velocidad' })
+  expect(reset(entrada, ahora)).toBe(ahora + 60_000)
+})
+
 const validacion: Validacion = {
   actores: new Map([
     [

@@ -3,10 +3,11 @@ import { realpath } from 'node:fs/promises'
 import { isAbsolute, relative, resolve } from 'node:path'
 
 import { db, write } from './db.ts'
-import { cerrado } from './ensayo.ts'
+import { cerrado, leerVeredicto } from './ensayo.ts'
 import { formatear, leerPendientes } from './pendientes.ts'
+import { esRegistro } from './validation-utils.ts'
 
-import type { EntradaActa, Veredicto } from './ensayo.ts'
+import type { EntradaActa } from './ensayo.ts'
 import type { Item } from './pendientes.ts'
 import type { Plugin } from '@opencode/plugin'
 import type { Database } from 'bun:sqlite'
@@ -52,6 +53,49 @@ export function tareas(contenido: string): Item[] {
   return titulos.map((titulo) => ({ texto: `${titulo[1]}: ${titulo[2]}`, estado: 'pendiente' }))
 }
 
+function leerObjeciones(texto: string): EntradaActa[] {
+  const datos: unknown = JSON.parse(texto)
+
+  if (!Array.isArray(datos)) {
+    throw new Error('estreno: objeciones guardadas tiene que ser una lista')
+  }
+
+  return datos.map((entrada: unknown, indice) => {
+    if (
+      !esRegistro(entrada) ||
+      typeof entrada.plan !== 'string' ||
+      typeof entrada.objecion !== 'string' ||
+      typeof entrada.causa !== 'string' ||
+      typeof entrada.condicion_cierre !== 'string'
+    ) {
+      throw new Error(`estreno: objeciones guardadas[${indice}] requiere plan, objecion, causa y condicion_cierre de texto`)
+    }
+
+    if (
+      typeof entrada.id !== 'number' ||
+      !Number.isInteger(entrada.id) ||
+      typeof entrada.ronda_entrada !== 'number' ||
+      !Number.isInteger(entrada.ronda_entrada)
+    ) {
+      throw new Error(`estreno: objeciones guardadas[${indice}] requiere id y ronda_entrada enteros`)
+    }
+
+    if (entrada.estado !== 'abierto' && entrada.estado !== 'cerrado') {
+      throw new Error(`estreno: objeciones guardadas[${indice}].estado tiene que ser abierto o cerrado`)
+    }
+
+    return {
+      plan: entrada.plan,
+      id: entrada.id,
+      objecion: entrada.objecion,
+      causa: entrada.causa,
+      condicion_cierre: entrada.condicion_cierre,
+      ronda_entrada: entrada.ronda_entrada,
+      estado: entrada.estado,
+    }
+  })
+}
+
 /** Check the current hash, both reviewers and the acta before any write. */
 export function evaluarEstreno(
   database: Database,
@@ -66,7 +110,7 @@ export function evaluarEstreno(
       throw new Error('estreno: el archivo cambió después del estreno; el plan estrenado es inmutable')
     }
 
-    return { tipo: estrenado.tipo, abiertas: JSON.parse(estrenado.objeciones) as EntradaActa[] }
+    return { tipo: estrenado.tipo, abiertas: leerObjeciones(estrenado.objeciones) }
   }
 
   const ultima = database
@@ -79,7 +123,7 @@ export function evaluarEstreno(
 
   const filas = database
     .query<Ensayo, { plan: string; ronda: number }>(
-      'SELECT ronda, hash, revisor, veredicto FROM ensayos WHERE plan = $plan AND ronda = $ronda ORDER BY revisor',
+      'SELECT hash, revisor, veredicto FROM ensayos WHERE plan = $plan AND ronda = $ronda ORDER BY revisor',
     )
     .all({ plan, ronda: ultima.ronda })
 
@@ -96,7 +140,7 @@ export function evaluarEstreno(
   }
 
   const acta = database.query<EntradaActa, { plan: string }>('SELECT * FROM acta WHERE plan = $plan ORDER BY id').all({ plan })
-  const veredictos = filas.map((fila) => JSON.parse(fila.veredicto) as Veredicto)
+  const veredictos = filas.map((fila) => leerVeredicto(fila.veredicto))
 
   if (
     cerrado(

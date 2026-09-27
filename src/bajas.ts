@@ -3,6 +3,7 @@ import { type Actor, type Config, plazoMs } from './config.ts'
 import { db, write } from './db.ts'
 import { log } from './log.ts'
 import { proceso } from './process.ts'
+import { esRegistro } from './validation-utils.ts'
 
 import type { Plugin } from '@opencode/plugin'
 import type { SessionRetry } from '@opencode/plugin/promise/session'
@@ -75,15 +76,18 @@ export function tomarError(errores: Map<string, ErrorCrudo>, sessionID: string, 
   return crudo?.actor === actor ? crudo : undefined
 }
 
-const json = (
-  texto: string,
-):
-  | { error?: { code?: string; resets_at?: unknown; resets_in_seconds?: unknown }; headers?: Record<string, unknown> }
-  | undefined => {
+const json = (texto: string) => {
   try {
-    const entrada = JSON.parse(texto)
+    const entrada: unknown = JSON.parse(texto)
 
-    return entrada && typeof entrada === 'object' ? entrada : undefined
+    if (!esRegistro(entrada)) {
+      return undefined
+    }
+
+    return {
+      error: esRegistro(entrada.error) ? entrada.error : undefined,
+      headers: esRegistro(entrada.headers) ? entrada.headers : undefined,
+    }
   } catch {
     return undefined
   }

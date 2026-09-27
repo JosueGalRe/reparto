@@ -3,6 +3,8 @@ import { join, resolve } from 'node:path'
 
 import schema from '../schema/reparto.schema.json'
 
+import { esRegistro } from './validation-utils.ts'
+
 export interface Actor {
   model: string
   variant?: string
@@ -25,8 +27,15 @@ export interface Config {
 }
 
 // "30m" | "5h" | "7d" → ms; el schema ya garantiza el formato
-export const plazoMs = (plazo: string) =>
-  Number(plazo.slice(0, -1)) * { m: 60_000, h: 3_600_000, d: 86_400_000 }[plazo.at(-1) as 'm' | 'h' | 'd']
+export function plazoMs(plazo: string): number {
+  const unidad = plazo.at(-1)
+
+  if (unidad !== 'm' && unidad !== 'h' && unidad !== 'd') {
+    throw new Error(`plazoMs: unidad inválida en "${plazo}"; se esperaba m, h o d`)
+  }
+
+  return Number(plazo.slice(0, -1)) * { m: 60_000, h: 3_600_000, d: 86_400_000 }[unidad]
+}
 
 const defaultPath = join(homedir(), '.config', 'opencode', 'reparto.jsonc')
 
@@ -51,13 +60,21 @@ export async function loadConfig(path: string): Promise<{ config: Config } | { e
     return { error: `${path} no es JSONC válido: ${error instanceof Error ? error.message : String(error)}` }
   }
 
-  const errors = validate(data, schema as JsonSchema, '')
-
-  if (errors.length) {
-    return { error: `${path} no cumple el schema: ${errors.join('; ')}` }
+  try {
+    validarConfig(data)
+  } catch (error) {
+    return { error: `${path} no cumple el schema: ${error instanceof Error ? error.message : String(error)}` }
   }
 
-  return { config: data as Config }
+  return { config: data }
+}
+
+function validarConfig(data: unknown): asserts data is Config {
+  const errors = validate(data, schema, '')
+
+  if (errors.length) {
+    throw new Error(errors.join('; '))
+  }
 }
 
 // Ponytail: solo el subconjunto de JSON Schema que usa schema/reparto.schema.json; si el schema crece, ampliar aquí.
@@ -65,7 +82,7 @@ export async function loadConfig(path: string): Promise<{ config: Config } | { e
 // Todo objeto del schema lo declara; si alguien lo omite, el editor aceptará claves que este validador rechaza.
 interface JsonSchema {
   $ref?: string
-  type?: 'object' | 'array' | 'string' | 'integer'
+  type?: string
   properties?: Record<string, JsonSchema>
   additionalProperties?: boolean | JsonSchema
   required?: string[]
@@ -75,25 +92,30 @@ interface JsonSchema {
   pattern?: string
 }
 
+const definiciones: Record<string, JsonSchema> = schema.$defs
+
 function validate(value: unknown, node: JsonSchema, path: string): string[] {
   const at = path || '(raíz)'
 
   if (node.$ref) {
-    const def = (schema as { $defs: Record<string, JsonSchema> }).$defs[node.$ref.replace('#/$defs/', '')]
+    const def = definiciones[node.$ref.replace('#/$defs/', '')]
 
-    return validate(value, def!, path)
+    if (!def) {
+      return [`${at}: referencia de schema desconocida "${node.$ref}"`]
+    }
+
+    return validate(value, def, path)
   }
 
   switch (node.type) {
     case 'object': {
-      if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+      if (!esRegistro(value)) {
         return [`${at}: se esperaba un objeto`]
       }
 
-      const record = value as Record<string, unknown>
-      const errors = (node.required ?? []).filter((key) => !(key in record)).map((key) => `${at}: falta "${key}"`)
+      const errors = (node.required ?? []).filter((key) => !(key in value)).map((key) => `${at}: falta "${key}"`)
 
-      for (const [key, child] of Object.entries(record)) {
+      for (const [key, child] of Object.entries(value)) {
         const sub = node.properties?.[key] ?? node.additionalProperties
         const childPath = path ? `${path}.${key}` : key
 
@@ -112,7 +134,9 @@ function validate(value: unknown, node: JsonSchema, path: string): string[] {
         return [`${at}: se esperaba una lista`]
       }
 
-      return node.items ? value.flatMap((item, indice) => validate(item, node.items!, `${path}[${indice}]`)) : []
+      const items = node.items
+
+      return items ? value.flatMap((item: unknown, indice) => validate(item, items, `${path}[${indice}]`)) : []
     }
 
     case 'string': {
@@ -132,11 +156,11 @@ function validate(value: unknown, node: JsonSchema, path: string): string[] {
     }
 
     case 'integer': {
-      if (!Number.isInteger(value)) {
+      if (typeof value !== 'number' || !Number.isInteger(value)) {
         return [`${at}: se esperaba un entero`]
       }
 
-      if (node.minimum !== undefined && (value as number) < node.minimum) {
+      if (node.minimum !== undefined && value < node.minimum) {
         return [`${at}: menor que ${node.minimum}`]
       }
 
@@ -144,5 +168,5 @@ function validate(value: unknown, node: JsonSchema, path: string): string[] {
     }
   }
 
-  return []
+  return [`${at}: tipo de schema no soportado "${node.type}"`]
 }

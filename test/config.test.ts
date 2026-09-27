@@ -42,6 +42,11 @@ test('plazoMs', () => {
   expect([plazoMs('30m'), plazoMs('5h'), plazoMs('7d')]).toEqual([1_800_000, 18_000_000, 604_800_000])
 })
 
+test.each(['1w', '30', ''])('plazoMs rechaza una unidad inválida: %s', (plazo) => {
+  // Given: un plazo sin unidad soportada; When: se convierte; Then: falla en vez de devolver NaN.
+  expect(() => plazoMs(plazo)).toThrow(/plazoMs: unidad inválida/)
+})
+
 test.each([
   [`{ "agentes": { "director": { "suplentes": [] } } }`, `agentes.director: falta "titular"`],
   [`{ "papeles": { "quick": { "titular": { "model": "a/b" } } } }`, 'papeles.quick: clave desconocida'],

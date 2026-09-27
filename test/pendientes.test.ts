@@ -30,3 +30,31 @@ test('sin items es lectura; items inválidos se rechazan', () => {
   expect(() => parsearItems({ items: [{ texto: 'x', estado: 'listo' }] })).toThrow(/estado/)
   expect(() => parsearItems({ items: [{}] })).toThrow(/texto/)
 })
+
+test.each(['null', '{}', '42', '[null]', '[[]]', '[{"texto":42}]', '[{"texto":"x","estado":"listo"}]'])(
+  'una fila de pendientes corrupta falla: %s',
+  (items) => {
+    // Given: JSON válido con estructura corrupta en una fila real.
+    using database = openDb(':memory:')
+
+    database.query("INSERT INTO pendientes VALUES ('corrupta', ?, 0)").run(items)
+
+    // When: se lee la fila; Then: no se devuelve una lista vacía ni items sin validar.
+    expect(() => leerPendientes(database, 'corrupta')).toThrow(/pendientes:.*items/)
+  },
+)
+
+test('una fila de pendientes con sintaxis JSON rota propaga el error', () => {
+  // Given: una fila truncada, no una sesión sin lista.
+  using database = openDb(':memory:')
+
+  database.query("INSERT INTO pendientes VALUES ('truncada', '[', 0)").run()
+
+  // When: se lee; Then: conserva el error de JSON.parse.
+  expect(() => leerPendientes(database, 'truncada')).toThrow(SyntaxError)
+})
+
+test.each([42, 'texto', [], true].map((input) => ({ input })))('pendientes rechaza una entrada no objeto: %j', ({ input }) => {
+  // Given: una entrada no objeto; When: se parsea; Then: no cuenta como una lectura sin items.
+  expect(() => parsearItems(input)).toThrow('pendientes: se esperaba un objeto')
+})

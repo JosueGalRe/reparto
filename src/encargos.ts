@@ -2,6 +2,7 @@ import { etiqueta, modelRef } from './actores.ts'
 import { db, write } from './db.ts'
 import { log } from './log.ts'
 import { proceso } from './process.ts'
+import { esRegistro } from './validation-utils.ts'
 
 import type { Actor } from './config.ts'
 import type { Plugin } from '@opencode/plugin'
@@ -381,10 +382,8 @@ export function encargos(ctx: Ctx) {
   }
 
   /** Interrumpe un encargo abierto cuya hija tenga `metadata.padre` = la sesión que llama. */
-  async function interrumpir(input: unknown, tool: { sessionID: string }) {
-    const entrada = (input ?? {}) as { id?: unknown }
-
-    if (typeof entrada.id !== 'string') {
+  async function interrumpir(entrada: unknown, tool: { sessionID: string }) {
+    if (!esRegistro(entrada) || typeof entrada.id !== 'string') {
       throw new Error('interrumpir: falta `id` (el id de la sesión hija)')
     }
 
@@ -442,10 +441,8 @@ export function encargos(ctx: Ctx) {
     }
   }
 
-  async function bitacora(input: unknown) {
-    const entrada = (input ?? {}) as { id?: unknown; detalle?: unknown }
-
-    if (typeof entrada.id !== 'string') {
+  async function bitacora(entrada: unknown) {
+    if (!esRegistro(entrada) || typeof entrada.id !== 'string') {
       throw new Error('bitacora: falta `id` (el id de la sesión hija)')
     }
 
@@ -683,14 +680,13 @@ export function argumentoClave(argumentos: string): string {
     return recortar(argumentos, 160)
   }
 
-  if (!entrada || typeof entrada !== 'object') {
+  if (!esRegistro(entrada)) {
     return ''
   }
 
-  const registro = entrada as Record<string, unknown>
   const clave =
-    clavesArgumento.find((clave) => typeof registro[clave] === 'string') ??
-    Object.keys(registro).find((clave) => typeof registro[clave] === 'string')
+    clavesArgumento.find((clave) => typeof entrada[clave] === 'string') ??
+    Object.keys(entrada).find((clave) => typeof entrada[clave] === 'string')
 
-  return clave ? `${clave}=${recortar(String(registro[clave]), 160).replaceAll('\n', ' ')}` : ''
+  return clave ? `${clave}=${recortar(String(entrada[clave]), 160).replaceAll('\n', ' ')}` : ''
 }

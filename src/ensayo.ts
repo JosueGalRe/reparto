@@ -6,6 +6,7 @@ import { etiqueta } from './actores.ts'
 import { bajasVigentes, deBaja } from './bajas.ts'
 import { db, write } from './db.ts'
 import { proceso } from './process.ts'
+import { esRegistro } from './validation-utils.ts'
 
 import type { Validacion } from './actores.ts'
 import type { Actor } from './config.ts'
@@ -41,6 +42,73 @@ interface Ensayo {
   readonly revisor: string
   readonly actor: string
   readonly veredicto: string
+}
+
+export function leerVeredicto(texto: string): Veredicto {
+  const datos: unknown = JSON.parse(texto)
+
+  if (!esRegistro(datos)) {
+    throw new Error('veredicto guardado: se esperaba un objeto')
+  }
+
+  if (datos.veredicto !== 'APROBADO' && datos.veredicto !== 'OBJECIONES') {
+    throw new Error('veredicto guardado: veredicto tiene que ser APROBADO u OBJECIONES')
+  }
+
+  if (!Array.isArray(datos.objeciones)) {
+    throw new Error('veredicto guardado: objeciones tiene que ser una lista')
+  }
+
+  const objeciones = datos.objeciones.map((objecion: unknown, indice): Objecion => {
+    if (
+      !esRegistro(objecion) ||
+      typeof objecion.seccion !== 'string' ||
+      typeof objecion.defecto !== 'string' ||
+      typeof objecion.causa !== 'string' ||
+      typeof objecion.cierre !== 'string' ||
+      (objecion.justificacion !== undefined && typeof objecion.justificacion !== 'string')
+    ) {
+      throw new Error(
+        `veredicto guardado: objeciones[${indice}] requiere seccion, defecto, causa y cierre de texto; justificacion es texto opcional`,
+      )
+    }
+
+    return {
+      seccion: objecion.seccion,
+      defecto: objecion.defecto,
+      causa: objecion.causa,
+      cierre: objecion.cierre,
+      ...(objecion.justificacion !== undefined ? { justificacion: objecion.justificacion } : {}),
+    }
+  })
+
+  if (!Array.isArray(datos.notas)) {
+    throw new Error('veredicto guardado: notas tiene que ser una lista')
+  }
+
+  const notas = datos.notas.map((nota: unknown, indice) => {
+    if (typeof nota !== 'string') {
+      throw new Error(`veredicto guardado: notas[${indice}] tiene que ser texto`)
+    }
+
+    return nota
+  })
+
+  if (!esRegistro(datos.cierres)) {
+    throw new Error('veredicto guardado: cierres tiene que ser un objeto')
+  }
+
+  const cierres: Record<number, 'cerrado' | 'abierto'> = {}
+
+  for (const [id, estado] of Object.entries(datos.cierres)) {
+    if (!id.trim() || !Number.isFinite(Number(id)) || (estado !== 'cerrado' && estado !== 'abierto')) {
+      throw new Error(`veredicto guardado: cierres[${id}] requiere un id numérico y estado cerrado o abierto`)
+    }
+
+    cierres[Number(id)] = estado
+  }
+
+  return { veredicto: datos.veredicto, objeciones, notas, cierres }
 }
 
 export function parsearVeredicto(texto: string): Veredicto {
@@ -277,7 +345,7 @@ export function ensayo(
           filas.length === 2 &&
           filas.every((fila) => fila.veredicto !== 'pendiente') &&
           cerrado(
-            filas.map((fila) => JSON.parse(fila.veredicto) as Veredicto),
+            filas.map((fila) => leerVeredicto(fila.veredicto)),
             acta,
             filas.map((fila) => fila.hash),
           ) &&

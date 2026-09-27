@@ -1,4 +1,5 @@
 import { write } from './db.ts'
+import { esRegistro } from './validation-utils.ts'
 
 import type { Database } from 'bun:sqlite'
 
@@ -13,7 +14,18 @@ export function leerPendientes(db: Database, clave: string): Item[] {
     .query<{ items: string }, { clave: string }>('SELECT items FROM pendientes WHERE clave = $clave')
     .get({ clave })
 
-  return fila ? (JSON.parse(fila.items) as Item[]) : []
+  if (!fila) {
+    return []
+  }
+
+  const datos: unknown = JSON.parse(fila.items)
+  const items = parsearItems({ items: datos })
+
+  if (!items) {
+    throw new Error(`pendientes: fila "${clave}" sin items`)
+  }
+
+  return items
 }
 
 export function escribirPendientes(db: Database, clave: string, items: Item[]) {
@@ -28,7 +40,11 @@ export function escribirPendientes(db: Database, clave: string, items: Item[]) {
 }
 
 export function parsearItems(input: unknown): Item[] | undefined {
-  const entrada = (input ?? {}) as { items?: unknown }
+  const entrada = input ?? {}
+
+  if (!esRegistro(entrada)) {
+    throw new Error('pendientes: se esperaba un objeto')
+  }
 
   if (entrada.items === undefined) {
     return undefined
@@ -38,20 +54,19 @@ export function parsearItems(input: unknown): Item[] | undefined {
     throw new Error('pendientes: `items` tiene que ser una lista')
   }
 
-  return entrada.items.map((item, indice) => {
-    const registro = (item ?? {}) as Record<string, unknown>
-
-    if (typeof registro.texto !== 'string' || !registro.texto.trim()) {
+  return entrada.items.map((item: unknown, indice) => {
+    if (!esRegistro(item) || typeof item.texto !== 'string' || !item.texto.trim()) {
       throw new Error(`pendientes: items[${indice}] sin \`texto\``)
     }
 
-    const estado = registro.estado ?? 'pendiente'
+    const estado = item.estado ?? 'pendiente'
+    const validado = estados.find((candidato) => candidato === estado)
 
-    if (!estados.includes(estado as Item['estado'])) {
+    if (!validado) {
       throw new Error(`pendientes: items[${indice}].estado tiene que ser ${estados.join(', ')}`)
     }
 
-    return { texto: registro.texto, estado: estado as Item['estado'] }
+    return { texto: item.texto, estado: validado }
   })
 }
 

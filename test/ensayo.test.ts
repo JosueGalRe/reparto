@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -5,14 +6,82 @@ import { join } from 'node:path'
 import { afterAll, expect, test } from 'bun:test'
 
 import { openDb } from '../src/db.ts'
-import { actualizarActa, admitir, cerrado, elegirRevisores, ensayo, parsearVeredicto } from '../src/ensayo.ts'
+import { actualizarActa, admitir, cerrado, elegirRevisores, ensayo, leerVeredicto, parsearVeredicto } from '../src/ensayo.ts'
 import { proceso } from '../src/process.ts'
 
 import type { Validacion } from '../src/actores.ts'
+import type { Veredicto } from '../src/ensayo.ts'
 
 const dir = mkdtempSync(join(tmpdir(), 'reparto-ensayo-'))
 
 afterAll(() => rmSync(dir, { recursive: true, force: true }))
+
+test('el lector guardado conserva objeciones, notas y cierres sin recortar', () => {
+  // Given: una revisión con campos opcionales y un texto mayor que el tope de bitácora.
+  const revision: Veredicto = {
+    veredicto: 'OBJECIONES',
+    objeciones: [{ seccion: 'T1', defecto: 'x'.repeat(32_001), causa: 'c', cierre: 'f', justificacion: 'de la ronda 1' }],
+    notas: ['', 'nota'],
+    cierres: { 1: 'cerrado', 2: 'abierto' },
+  }
+
+  // When: se relee el JSON persistido; Then: todos los campos conservan su valor.
+  expect(leerVeredicto(JSON.stringify(revision))).toEqual(revision)
+})
+
+test('OBJECIONES sin objeciones nuevas es válido si sigue pendiente el acta', () => {
+  // Given: admitir puede guardar esta revisión cuando no se cierra una objeción anterior.
+  const revision: Veredicto = { veredicto: 'OBJECIONES', objeciones: [], notas: [], cierres: { 1: 'abierto' } }
+
+  // When: se relee; Then: no se exige una objeción nueva para una ronda de cierre.
+  expect(leerVeredicto(JSON.stringify(revision))).toEqual(revision)
+})
+
+test('ensayo rechaza la aprobación guardada corrupta antes de cerrar o relanzar revisores', async () => {
+  // Given: dos aprobaciones aparentes del hash actual, una de ellas sin notas ni cierres.
+  const location = join(dir, 'guardado-corrupto')
+  const plan = '.reparto/planes/demo.md'
+  const contenido = '### T1: comprobar\n'
+
+  mkdirSync(join(location, '.reparto/planes'), { recursive: true })
+  writeFileSync(join(location, plan), contenido)
+  using database = openDb(':memory:')
+  const previo = proceso.db
+
+  proceso.db = database
+
+  try {
+    for (const revisor of ['critico', 'oracle']) {
+      database
+        .query('INSERT INTO ensayos VALUES (?, 1, ?, ?, ?, ?)')
+        .run(
+          join(location, plan),
+          createHash('sha256').update(contenido).digest('hex'),
+          revisor,
+          'p/m',
+          JSON.stringify(
+            revisor === 'critico' ? { veredicto: 'APROBADO', objeciones: [] } : parsearVeredicto('VEREDICTO: APROBADO'),
+          ),
+        )
+    }
+
+    const ejecutar = ensayo(
+      { session: { get: async () => ({ agent: 'dramaturgo', location: { directory: location } }) } },
+      {
+        delegar: async () => {
+          throw new Error('no debe relanzar un ensayo corrupto')
+        },
+      },
+    )
+
+    // When: se reensaya; Then: el mismo lector impide anunciar el cierre de una revisión corrupta.
+    await expect(ejecutar({ plan }, { sessionID: 'ses_padre', signal: new AbortController().signal })).rejects.toThrow(
+      /veredicto guardado: notas/,
+    )
+  } finally {
+    proceso.db = previo
+  }
+})
 
 test('parses approved, section-level objections and closure lines', () => {
   // Given: verdicts in the reviewers' wire format.

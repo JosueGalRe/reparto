@@ -12,6 +12,7 @@ import { log } from '../src/log.ts'
 import { escribirPendientes, leerPendientes } from '../src/pendientes.ts'
 import { proceso } from '../src/process.ts'
 
+import type { EntradaActa } from '../src/ensayo.ts'
 import type { Plugin } from '@opencode/plugin'
 
 const dir = mkdtempSync(join(tmpdir(), 'reparto-estreno-'))
@@ -33,6 +34,100 @@ function ensayado(nombre: string, hash: string, ronda: number, veredicto = verdi
     )
   }
 }
+
+test.each(
+  [
+    null,
+    [],
+    {},
+    { veredicto: 'APROBADO', objeciones: [] },
+    { veredicto: 'OTRO', objeciones: [], notas: [], cierres: {} },
+    { veredicto: 'APROBADO', objeciones: {}, notas: [], cierres: {} },
+    { veredicto: 'OBJECIONES', objeciones: [null], notas: [], cierres: {} },
+    { veredicto: 'OBJECIONES', objeciones: [{ seccion: 'T1' }], notas: [], cierres: {} },
+    {
+      veredicto: 'OBJECIONES',
+      objeciones: [{ seccion: 'T1', defecto: 'd', causa: 'c', cierre: 'f', justificacion: 42 }],
+      notas: [],
+      cierres: {},
+    },
+    { veredicto: 'APROBADO', objeciones: [], notas: [42], cierres: {} },
+    { veredicto: 'APROBADO', objeciones: [], notas: [], cierres: [] },
+    { veredicto: 'APROBADO', objeciones: [], notas: [], cierres: { 1: 'listo' } },
+    { veredicto: 'APROBADO', objeciones: [], notas: [], cierres: { texto: 'cerrado' } },
+  ].map((payload) => ({ payload })),
+)('un veredicto guardado mal formado no permite estrenar: %j', ({ payload }) => {
+  // Given: una quinta ronda completa cuyo JSON podría pasar por aprobación o por override.
+  const nombre = `${plan}-corrupto-${crypto.randomUUID()}`
+
+  ensayado(nombre, 'A', 5, JSON.stringify(payload))
+
+  // When: se evalúa con-objeciones; Then: validar precede tanto al cierre como al override.
+  expect(() => evaluarEstreno(db, nombre, 'A', true)).toThrow(/veredicto guardado:/)
+})
+
+const entradaGuardada: EntradaActa = {
+  plan: 'plan-guardado',
+  id: 1,
+  objecion: 'T1: falta verificar',
+  causa: 'sin prueba',
+  condicion_cierre: 'añadir prueba',
+  ronda_entrada: 1,
+  estado: 'abierto',
+}
+
+test.each(
+  [
+    null,
+    {},
+    [null],
+    [[]],
+    [{ ...entradaGuardada, plan: 42 }],
+    [{ ...entradaGuardada, id: '1' }],
+    [{ ...entradaGuardada, objecion: null }],
+    [{ ...entradaGuardada, causa: [] }],
+    [{ ...entradaGuardada, condicion_cierre: {} }],
+    [{ ...entradaGuardada, ronda_entrada: 1.5 }],
+    [{ ...entradaGuardada, estado: 'listo' }],
+  ].map((payload) => ({ payload })),
+)('un acta guardada mal formada no permite reanudar: %j', ({ payload }) => {
+  // Given: un estreno existente con instantánea corrupta; el acta actual está vacía.
+  const nombre = `${plan}-acta-corrupta-${crypto.randomUUID()}`
+
+  db.query("INSERT INTO estrenos VALUES (?, 'A', 0, 'con_objeciones', ?)").run(nombre, JSON.stringify(payload))
+
+  // When: se reevalúa; Then: falla en lugar de usar el acta actual o devolver el JSON sin validar.
+  expect(() => evaluarEstreno(db, nombre, 'A', true)).toThrow(/estreno: objeciones guardadas/)
+})
+
+test('la reanudación devuelve la instantánea guardada aunque el acta actual cambie', () => {
+  // Given: una instantánea abierta y un acta actual cerrada.
+  const nombre = `${plan}-instantanea`
+  const entrada = { ...entradaGuardada, plan: nombre }
+
+  db.query("INSERT INTO estrenos VALUES (?, 'A', 0, 'con_objeciones', ?)").run(nombre, JSON.stringify([entrada]))
+  db.query("INSERT INTO acta VALUES (?, 1, 'otra objeción', 'otra causa', 'otro cierre', 2, 'cerrado')").run(nombre)
+
+  // When: se reevalúa el estreno; Then: se conserva el contenido y estado originales.
+  expect(evaluarEstreno(db, nombre, 'A', true)).toEqual({ tipo: 'con_objeciones', abiertas: [entrada] })
+})
+
+test('un veredicto corrupto no deja un estreno parcial y permite reintentar tras repararlo', () => {
+  // Given: la estructura incompleta antes se aceptaba como aprobación.
+  const ref = { plan: `${plan}-reparado`, hash: 'A' }
+
+  ensayado(ref.plan, ref.hash, 1, JSON.stringify({ veredicto: 'APROBADO', objeciones: [] }))
+
+  // When: se intenta registrar; Then: el error conserva su contexto y no deja efectos parciales.
+  expect(() => registrarEstreno(db, ref, contenido, false, 'ses_reparada')).toThrow(/veredicto guardado:/)
+  expect(db.query('SELECT * FROM estrenos WHERE plan = ?').all(ref.plan)).toEqual([])
+  expect(db.query('SELECT * FROM pendientes WHERE clave = ?').all(clavePlan(ref))).toEqual([])
+  expect(db.query('SELECT * FROM sesiones_regidor WHERE plan = ?').all(ref.plan)).toEqual([])
+
+  // When: se repara la fila y se reintenta; Then: el registro puede completarse.
+  db.query('UPDATE ensayos SET veredicto = ? WHERE plan = ?').run(verdict, ref.plan)
+  expect(registrarEstreno(db, ref, contenido, false, 'ses_reparada').estreno.tipo).toBe('normal')
+})
 
 test('estreno accepts two approvals on current hash, seeds tasks and resumes instead of resetting', () => {
   // Given: both reviewers approved exactly the current version.
@@ -139,7 +234,12 @@ test('estreno refuses an edited current file even after version A was approved',
 test('con-objeciones requires completed fifth round and retains the open acta', () => {
   // Given: five completed rounds without approval, with an open objection.
   const nombre = `${plan}-fifth`
-  const objeciones = JSON.stringify({ veredicto: 'OBJECIONES', objeciones: [{ seccion: 'T1' }], notas: [], cierres: {} })
+  const objeciones = JSON.stringify({
+    veredicto: 'OBJECIONES',
+    objeciones: [{ seccion: 'T1', defecto: 'risk', causa: 'data', cierre: 'fix' }],
+    notas: [],
+    cierres: {},
+  })
 
   for (let ronda = 1; ronda <= 5; ronda++) {
     ensayado(nombre, 'A', ronda, objeciones)

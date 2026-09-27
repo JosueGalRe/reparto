@@ -58,6 +58,40 @@ test('argumento clave de una tool call', () => {
   expect(argumentoClave(JSON.stringify({ n: 1 }))).toBe('')
 })
 
+test('argumentoClave no interpreta un array como argumentos de una tool', () => {
+  // Given: JSON con un array en lugar de un objeto; When: se resume; Then: no expone índices como claves.
+  expect(argumentoClave('["command"]')).toBe('')
+})
+
+test.each([null, undefined, 42, 'texto', [], Object.assign([], { id: 'ses_hija' })].map((input) => ({ input })))(
+  'interrumpir y bitacora rechazan una entrada no objeto: %j',
+  async ({ input }) => {
+    // Given: una entrada inválida y un contexto que prohíbe efectos antes de validar.
+    let llamadas = 0
+    const inesperado = async () => {
+      llamadas++
+      throw new Error('no debe consultar ni modificar sesiones')
+    }
+    const gestor = encargos({
+      session: {
+        get: inesperado,
+        create: inesperado,
+        context: inesperado,
+        prompt: inesperado,
+        wait: inesperado,
+        interrupt: inesperado,
+      },
+    })
+
+    // When: las dos tools reciben la entrada; Then: mantienen el error de id sin llegar al SDK.
+    await expect(gestor.interrumpir(input, { sessionID: 'ses_padre' })).rejects.toThrow(
+      'interrumpir: falta `id` (el id de la sesión hija)',
+    )
+    await expect(gestor.bitacora(input)).rejects.toThrow('bitacora: falta `id` (el id de la sesión hija)')
+    expect(llamadas).toBe(0)
+  },
+)
+
 test('título de encargo resume la primera línea no vacía y recorta a 60 caracteres', () => {
   expect(tituloEncargo('protagonista', `\n  ${'palabra '.repeat(10)}fin\nresto`)).toBe(
     `protagonista · ${`${'palabra '.repeat(7)}palabra `.slice(0, 60)}…`,
