@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDb } from "../src/db.ts";
-import { argumentoClave, encargos, leer, permisoPendiente, posterior, puedeDelegar, registrarPermiso, textoAviso, textoPermiso, tituloEncargo, transicion, vivo, yo } from "../src/encargos.ts";
+import { argumentoClave, encargos, hijosNativos, leer, permisoPendiente, posterior, puedeDelegar, registrarPermiso, textoAviso, textoPermiso, tituloEncargo, transicion, vivo, yo } from "../src/encargos.ts";
 import { proceso } from "../src/process.ts";
 
 const dir = mkdtempSync(join(tmpdir(), "reparto-encargos-"));
@@ -166,4 +166,54 @@ test("permission.replied actualiza actividad y cierra la espera", () => {
   expect(permisoPendiente(e.hija)).toBe(false);
   expect(proceso.abiertos.get(e.hija)?.actividad).toBeGreaterThan(1);
   proceso.abiertos.delete(e.hija);
+});
+
+test("bitacora records a native child's tool calls and reads its final message", async () => {
+  // Given: a native child without a row in encargos, even after compaction.
+  const hija = `ses_${crypto.randomUUID()}`;
+  const ctx = { session: {
+    get: async () => ({ parentID: "ses_p", agent: "utilero", outcome: "succeeded" }),
+    context: async () => [{ type: "assistant", content: [{ type: "text", text: "Found it" }] }],
+  } };
+  const job = encargos(ctx as never, {} as never);
+  // When: execute.after records a read and bitacora is requested.
+  await job.registrarLlamada({ sessionID: hija, messageID: "msg_1", id: "call_1", tool: "read", input: { path: "src/index.ts" }, status: "completed", result: { content: "code" } });
+  const result = await job.bitacora({ id: hija });
+  // Then: the durable tool record and live final answer are visible.
+  expect(result.content).toContain("read path=src/index.ts");
+  expect(result.content).toContain("Found it");
+});
+
+test("interrumpir accepts only the caller's native child", async () => {
+  // Given: a native child belonging to another parent.
+  const hija = `ses_${crypto.randomUUID()}`;
+  let interrupted = 0;
+  const ctx = { session: { get: async () => ({ parentID: "ses_owner" }), interrupt: async () => { interrupted++; } } };
+  const job = encargos(ctx as never, {} as never);
+  // When: a different caller tries, Then: it is rejected without interrupting.
+  await expect(job.interrumpir({ id: hija }, { sessionID: "ses_other" } as never)).rejects.toThrow("no es un encargo de esta sesión");
+  expect(interrupted).toBe(0);
+  // When: its owner interrupts, Then: V2 receives the interruption.
+  await job.interrumpir({ id: hija }, { sessionID: "ses_owner" } as never);
+  expect(interrupted).toBe(1);
+});
+
+test("native stale watcher sends one notice, skips pending permission and stops after completion", async () => {
+  // Given: inactive and permission-blocked native children.
+  const hija = `ses_${crypto.randomUUID()}`;
+  const blocked = `ses_${crypto.randomUUID()}`;
+  const notices: string[] = [];
+  const ctx = { session: { prompt: async (x: { text: string }) => { notices.push(x.text); } } };
+  const job = encargos(ctx as never, {} as never);
+  hijosNativos().set(hija, { padre: "ses_p", actividad: 1, avisado: false, permiso: false });
+  hijosNativos().set(blocked, { padre: "ses_p", actividad: 1, avisado: false, permiso: true });
+  // When: the watcher runs twice.
+  await job.vigilar();
+  await job.vigilar();
+  // Then: only the inactive child is reported once, without interruption.
+  expect(notices).toHaveLength(1);
+  expect(notices[0]).toContain(hija);
+  job.evento({ type: "session.execution.succeeded", data: { sessionID: hija } });
+  expect(hijosNativos().has(hija)).toBe(false);
+  hijosNativos().delete(blocked);
 });

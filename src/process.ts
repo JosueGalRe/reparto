@@ -14,6 +14,8 @@ export interface Proceso {
   cupos?: Map<number, string>;
   /** Hijas con un encargo abierto en este proceso, con su última actividad. */
   abiertos?: Map<string, { id: number; actividad: number; estancado?: boolean }>;
+  /** Hijas nativas activas; el evento de ejecución cierra su vigilancia. */
+  hijosNativos?: Map<string, { padre: string; actividad: number; avisado: boolean; permiso: boolean }>;
   /** Encargos que alguna instancia está cerrando, para no pedir su outcome dos veces. */
   cerrando?: Set<number>;
   /** Último error `primary` por sesión (http.response o ws.receive), hasta que lo consume el `retry`. */

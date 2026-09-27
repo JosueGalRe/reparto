@@ -144,6 +144,7 @@ export function moverCupo(id: number, proveedor: string, limite: number) {
 }
 
 export const abiertos = () => (proceso.abiertos ??= new Map());
+export const hijosNativos = () => (proceso.hijosNativos ??= new Map());
 
 // ---------- Encargos ----------
 
@@ -396,8 +397,13 @@ export function encargos(ctx: Ctx, config: Config) {
     if (typeof x.id !== "string") throw new Error("interrumpir: falta `id` (el id de la sesión hija)");
     const hija = x.id;
     const s = await ctx.session.get({ sessionID: hija }).catch(() => undefined);
-    if (!s || s.metadata?.padre !== tool.sessionID)
+    if (!s || (s.parentID ?? s.metadata?.padre) !== tool.sessionID)
       throw new Error(`interrumpir: ${hija} no es un encargo de esta sesión; solo se pueden interrumpir los encargos propios`);
+    if (s.parentID) {
+      await ctx.session.interrupt({ sessionID: hija });
+      hijosNativos().delete(hija);
+      return { content: `Encargo ${hija} interrumpido.`, metadata: { hija, estado: "interrumpido" } };
+    }
     const e = db().query("SELECT * FROM encargos WHERE hija = $hija AND estado IN ('en_cola', 'corriendo', 'estancado')").get({ hija }) as Encargo | null;
     if (!e) throw new Error(`interrumpir: ${hija} no tiene un encargo abierto`);
     if (e.estado === "en_cola") {
@@ -422,7 +428,9 @@ export function encargos(ctx: Ctx, config: Config) {
     const x = (input ?? {}) as { id?: unknown; detalle?: unknown };
     if (typeof x.id !== "string") throw new Error("bitacora: falta `id` (el id de la sesión hija)");
     const e = db().query("SELECT * FROM encargos WHERE hija = $hija ORDER BY id DESC LIMIT 1").get({ hija: x.id }) as Encargo | null;
-    if (!e) throw new Error(`${x.id} no es un encargo de reparto`);
+    const s = e ? undefined : await ctx.session.get({ sessionID: x.id }).catch(() => undefined);
+    if (!e && !s?.parentID)
+      throw new Error(`${x.id} no es un encargo de reparto`);
     const completo = x.detalle === "completo";
     const llamadas = db().query("SELECT tool, argumentos, resultado, estado FROM bitacora WHERE hija = $hija ORDER BY hora").all({ hija: x.id }) as {
       tool: string;
@@ -436,17 +444,20 @@ export function encargos(ctx: Ctx, config: Config) {
     });
     return {
       content: [
-        `Encargo ${e.hija} (${e.a}, ${e.actor}): ${e.estado}${e.error ? ` (${e.error})` : ""}.`,
+        e ? `Encargo ${e.hija} (${e.a}, ${e.actor}): ${e.estado}${e.error ? ` (${e.error})` : ""}.` : `Encargo ${x.id} (${s?.agent}): ${s?.outcome ?? "abierto"}.`,
         `Tool calls (${llamadas.length}):`,
         lineas.join("\n") || "(ninguna)",
         `Mensaje final:`,
-        e.mensaje_final ?? "(todavía no hay)",
+        e?.mensaje_final ?? (s ? await mensajeFinal(x.id) : undefined) ?? "(todavía no hay)",
       ].join("\n\n"),
     };
   }
 
-  function registrarLlamada(x: { tool: string; sessionID: string; messageID: string; id: string; input: unknown; status: "completed" | "error"; result?: { content?: unknown }; error?: { message: string } }) {
-    if (!abiertos().has(x.sessionID)) return;
+  async function registrarLlamada(x: { tool: string; sessionID: string; messageID: string; id: string; input: unknown; status: "completed" | "error"; result?: { content?: unknown }; error?: { message: string } }) {
+    if (!abiertos().has(x.sessionID)) {
+      const s = await ctx.session.get({ sessionID: x.sessionID }).catch(() => undefined);
+      if (!s?.parentID) return;
+    }
     const resultado = x.status === "error" ? x.error?.message ?? "" : typeof x.result?.content === "string" ? x.result.content : JSON.stringify(x.result?.content ?? "");
     write(db(), "bitácora", () =>
       db()
@@ -471,6 +482,13 @@ export function encargos(ctx: Ctx, config: Config) {
   function evento(ev: { type: string; created?: number; data?: unknown }) {
     const data = ev.data as { sessionID?: string; id?: string; requestID?: string; action?: string; resources?: string[]; error?: { message?: string } } | undefined;
     const abierto = data?.sessionID ? abiertos().get(data.sessionID) : undefined;
+    const nativo = data?.sessionID ? hijosNativos().get(data.sessionID) : undefined;
+    if (nativo) {
+      if (ev.type === "session.execution.succeeded" || ev.type === "session.execution.failed" || ev.type === "session.execution.interrupted") hijosNativos().delete(data!.sessionID!);
+      else if (ev.type === "permission.asked") nativo.permiso = true;
+      else if (ev.type === "permission.replied") { nativo.permiso = false; nativo.actividad = Date.now(); }
+      else if (/^session\.(step|tool|text|reasoning)\./.test(ev.type)) { nativo.actividad = Date.now(); nativo.avisado = false; }
+    }
     if (!abierto) return;
     if (ev.type === "session.execution.succeeded" || ev.type === "session.execution.failed" || ev.type === "session.execution.interrupted") {
       void cerrar(abierto.id, { created: ev.created ?? Date.now(), error: data?.error?.message });
@@ -515,6 +533,15 @@ export function encargos(ctx: Ctx, config: Config) {
 
   async function vigilar() {
     const ahora = Date.now();
+    for (const [hija, nativo] of hijosNativos()) {
+      if (nativo.avisado || nativo.permiso || ahora - nativo.actividad < PLAZO_ESTANCADO) continue;
+      nativo.avisado = true;
+      try {
+        await ctx.session.prompt({ sessionID: nativo.padre, text: `[reparto] ${hija} — estancado\n\nSin actividad desde hace 30 min. Sigue abierto; decide si lo interrumpes.\n(bitacora({ id: "${hija}" }) para el resto)`, delivery: "queue", metadata: { repartoAviso: true } });
+      } catch (error) {
+        log.error("aviso de estancado falló", { hija, error: String(error) });
+      }
+    }
     for (const [hija, abierto] of abiertos()) {
       if (abierto.estancado || ahora - abierto.actividad < PLAZO_ESTANCADO || permisoPendiente(hija)) continue;
       const e = leer(abierto.id);

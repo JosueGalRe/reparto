@@ -6,7 +6,7 @@ import { readCatalog } from "./catalog.ts";
 import { configPath, loadConfig } from "./config.ts";
 import { continuacion } from "./continuacion.ts";
 import { db, ensureSchema } from "./db.ts";
-import { destinos, encargos } from "./encargos.ts";
+import { destinos, encargos, hijosNativos } from "./encargos.ts";
 import { ensayo } from "./ensayo.ts";
 import { clavePlan, estreno, planDeSesion } from "./estreno.ts";
 import { log } from "./log.ts";
@@ -24,6 +24,7 @@ const hijos = new Set(["utilero", "archivista", "oracle", "critico", ...papeles]
 export async function imponerHija(ctx: Plugin.Context, sessionID: string) {
   const sesion = await ctx.session.get({ sessionID });
   if (!sesion.parentID || !hijos.has(sesion.agent ?? "")) return false;
+  hijosNativos().set(sessionID, { padre: sesion.parentID, actividad: Date.now(), avisado: false, permiso: false });
   const agente = sesion.agent ?? "";
   const actor = proceso.validacion && resolver(proceso.validacion, agente, deBaja(bajasVigentes(db())));
   if (!actor) {
