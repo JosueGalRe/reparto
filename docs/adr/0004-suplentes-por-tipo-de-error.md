@@ -6,7 +6,7 @@ Cuando falla una llamada a un modelo, el alcance depende del tipo de error:
 - **5xx o timeout**: se reintenta el mismo actor, y el suplente entra después de N fallos.
 - **Auth**: entra el suplente y se avisa de forma visible.
 
-El turno que falló se reintenta con el suplente, sin reenviar el mensaje del usuario, y la sesión avisa quién entró. Cuando vence la baja, el titular vuelve en las sesiones nuevas, y en la sesión del director al empezar tu siguiente turno. La sesión de un papel conserva su actor hasta terminar, para no perder el prompt cache a mitad del trabajo. Las bajas se guardan en la base de estado de reparto (ADR 0010), así que sobreviven a los reinicios y las comparten todos los procesos de OpenCode.
+El turno que falló se reintenta con el suplente, sin reenviar el mensaje del usuario. Quién entró se ve en la marca `model-switched` que V2 deja en la sesión, y en un encargo también en el aviso al padre ("entró como suplente en lugar de …"). No se inyecta un mensaje en la sesión: si llega después de la respuesta abre un paso más, y en un encargo esa respuesta pisaba el mensaje final (1.8). Cuando vence la baja, el titular vuelve en las sesiones nuevas, y en la sesión del director al empezar tu siguiente turno. La sesión de un papel conserva su actor hasta terminar, para no perder el prompt cache a mitad del trabajo. Las bajas se guardan en la base de estado de reparto (ADR 0010), así que sobreviven a los reinicios y las comparten todos los procesos de OpenCode.
 
 El caso real es el límite semanal de OpenAI: agota la cuenta, o sea todos los modelos `openai/*`, y dura días. El cooldown de OMO, de 5 h, por modelo y en memoria, lo trataba como un fallo pasajero de un solo modelo.
 
