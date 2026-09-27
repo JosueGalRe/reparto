@@ -2,7 +2,7 @@
 
 Vocabulario en [CONTEXT.md](../CONTEXT.md) y decisiones en [docs/adr/](./adr/). Este plan ordena el trabajo y define cómo se verifica cada paso; no vuelve a decidir lo que ya está en los ADRs.
 
-Hay cuatro fases: **0** confirma supuestos sobre V2 que hoy no están verificados, **1** es el MVP, que reemplaza a OMO en el uso diario, **2** agrega los planes y **3** pasa los encargos al `subagent` nativo (ADR 0013). Una fase no empieza sin que la anterior haya pasado sus escenarios. Si un resultado de la fase 0 contradice un ADR, se actualiza ese ADR antes de seguir.
+Hay cinco fases: **0** confirma supuestos sobre V2 que hoy no están verificados, **1** es el MVP, que reemplaza a OMO en el uso diario, **2** agrega los planes, **3** pasa los encargos al `subagent` nativo (ADR 0013) y **4** revisa el código sin cambiar comportamiento: borra lo que dejó la fase 3, quita las type assertions y parte los módulos grandes. Una fase no empieza sin que la anterior haya pasado sus escenarios. Si un resultado de la fase 0 contradice un ADR, se actualiza ese ADR antes de seguir.
 
 Supuestos base: OpenCode `2.0.18`, SDK `@opencode/plugin` fijado en la versión exacta instalada, runtime Bun y plugin local en `~/projects/reparto` (sin publicarlo en npm). En cada upgrade de OpenCode se hace un diff de tipos del SDK y se vuelven a correr los escenarios de las rebanadas afectadas.
 
@@ -314,6 +314,102 @@ Aplica el ADR 0013: los encargos pasan al `subagent` nativo y reparto agrega lo 
 
 ---
 
+## Fase 4: revisión de código
+
+Deja el código a la altura de las convenciones de `AGENTS.md` sin cambiar comportamiento. Borra lo que la fase 3 dejó sin uso, quita todas las type assertions (menos `as const`) en `src/`, `scripts/` y `test/`, y parte `src/index.ts` y `src/encargos.ts`.
+
+**Reglas de la fase.** Cada rebanada es un commit y `bun run check` pasa en cada uno. No hay migraciones destructivas de SQLite: `ensureSchema` solo corre `CREATE ... IF NOT EXISTS`. Las columnas que nadie lee (`background`, `boot_id`, `pid`, `starttime`, `aviso_pendiente`) se quedan en la tabla y salen solo del tipo que usa la aplicación; como `background`, `boot_id`, `pid` y `starttime` son `NOT NULL` sin default, el `INSERT` sigue escribiendo valores de compatibilidad. `estancado` queda como estado histórico legible y `test/fixtures/main-schema.sql` sigue representando el schema viejo.
+
+**Invariantes que ninguna rebanada rompe.** El singleton por proceso; el CAS al cerrar; el rechazo de eventos anteriores; la propiedad de las hijas por `parentID` (por `metadata.padre` en los revisores internos); el aviso de permiso de los revisores; los veredictos sin recortar; el actor impuesto antes de que corra una hija; el cleanup de la suscripción y del timer.
+
+### 4.1 Residuos del ejecutor interno
+
+- En `src/encargos.ts` se borran: la vigilancia de estancados de los revisores (`abierto.estancado`, `abierto.actividad`, `actividad()` y sus llamadas); el parámetro `skills` de `correr`; el chequeo de retomas simultáneas y el reset de permisos dentro de `delegar`; el handler interno de `permission.replied`; y la respuesta textual de `delegar` (`TOPE_AVISO`, `nota`). `delegar` devuelve solo la referencia que usa `ensayo`.
+- `Entrada.a` y el actor pasan a ser obligatorios. `delegar` recibe la entrada tipada que arma `ensayo` y deja de parsear `unknown`.
+- Se conservan `abiertos`, `cerrando`, `posterior`, el estado `en_cola`, el aviso de permiso de los revisores, la vigilancia nativa y el índice único de SQLite.
+- **Escenarios:**
+  - Un test nuevo corre el `delegar` real, que hoy `test/ensayo.test.ts` reemplaza por un doble: cubre el cierre, la cancelación y el aviso de permiso del revisor.
+  - Un ensayo general completo cierra igual que en 2.2.
+
+### 4.2 Superficie muerta
+
+- Se borra `ligarSesion` (`src/estreno.ts`). Su test pasa a usar el camino real de `registrarEstreno`.
+- Se quitan los exports sin consumidor externo, salvo los que necesite la partición de 4.6 y 4.7.
+- `scripts/migrate-omo.ts` deja de generar `concurrencia`. El schema la sigue aceptando, marcada como obsoleta, y el runtime la ignora.
+- **Escenarios:**
+  - Una config con `concurrencia` carga sin error.
+  - `planDeSesion` encuentra la sesión ligada por `registrarEstreno`.
+
+### 4.3 Tope del mensaje final
+
+- El UPSERT de `mensajes_hijas` guarda `recortar(texto, 32_000)`: 32.000 unidades UTF-16 más el marcador. No es un límite en bytes ni garantiza una longitud total exacta.
+- Solo se recorta lo que se guarda. `mensajeFinal()` sigue devolviendo el texto entero porque alimenta el veredicto del ensayo. Se conserva `WHERE excluded.desde >= mensajes_hijas.desde`; los mensajes ya guardados no se reescriben.
+- El valor es una propuesta, no sale de una medición. Se cambia si con mensajes reales la bitácora pierde algo que hace falta.
+- **Escenarios:**
+  - Mensajes por debajo del tope, justo en el tope y por encima.
+  - El mensaje persiste después de compactar.
+  - Un UPSERT anterior se rechaza.
+
+### 4.4 Filas de SQLite con genéricos
+
+- Las 26 assertions sobre filas pasan a `db().query<Fila, Parametros>(...)`. El genérico es un contrato que escribimos nosotros: no valida la fila.
+- `.get()` devuelve `null`. Donde el cast escondía la nulabilidad (`src/continuacion.ts`, `src/estreno.ts`) va un chequeo explícito, no `!`. `planDeSesion` conserva su `undefined` con `?? undefined`.
+- **Escenarios:**
+  - Lecturas con fila y sin fila, también sobre el schema viejo.
+
+### 4.5 Validación de entradas
+
+- El guard `esRegistro` va en `src/validation-utils.ts` y cubre los objetos `unknown` de config, `pendientes`, `bitacora` e `interrumpir`. Cada propiedad se sigue validando por separado.
+- `validarConfig` pasa a `asserts data is Config`, ejecuta el validador actual y da los mismos errores. El schema interno acepta el `type: string` que viene de la importación JSON, rechaza los tipos que no soporta y tipa `$defs` como `Record<string, JsonSchema>`. No se agrega Zod.
+- JSON persistido: `pendientes` reutiliza `parsearItems`; `Veredicto` tiene un lector validado que comparten `ensayo` y `estreno`; la instantánea `EntradaActa[]` se valida. Un JSON mal formado falla con error. Nunca se lee como aprobación ni como lista vacía.
+- Los literales y los números se validan de verdad: `find` sobre la lista de estados, `typeof value === 'number'` y la unidad `m`/`h`/`d` comprobada explícitamente. El JSON del proveedor en `src/bajas.ts` también se valida.
+- **Escenarios:**
+  - `test/config.test.ts` pasa sin cambios.
+  - Los payloads mal formados de `pendientes`, del veredicto y del acta fallan con error.
+
+### 4.6 Partir `encargos`
+
+- `encargos-types.ts`: estados, fila, entrada del revisor y tipos de seguimiento. `encargos-utils.ts`: funciones puras (`recortar`, `tituloEncargo`, `posterior`, `etiquetaRef`, `argumentoClave`, `estaAbierto`). `bitacora.ts`: mensaje final, registro de llamadas y lectura. En `encargos.ts` quedan el ciclo del revisor, el CAS, la cancelación, los permisos internos, los eventos y la vigilancia nativa. `hijasNativas` pasa a `process.ts`.
+- Nombres:
+
+| Antes          | Después                                     |
+| -------------- | ------------------------------------------- |
+| `Estado`       | `EstadoEncargo`                             |
+| `Entrada`      | `EntradaRevisor`                            |
+| `a`            | `revisor` (la columna SQL sigue siendo `a`) |
+| `destinos`     | `revisoresPermitidos`                       |
+| `leer`         | `leerEncargo`                               |
+| `transicion`   | `cambiarEstadoEncargo`                      |
+| `isOpen`       | `estaAbierto`                               |
+| `hijosNativos` | `hijasNativas`                              |
+
+- Los dobles de `test/encargos.test.ts` pasan a ser interfaces estructurales mínimas: tienen solo los métodos que se consumen y los métodos inesperados fallan.
+- Sin barrels, sin repositorios genéricos y sin clases.
+- **Escenarios:**
+  - Los tests de CAS, eventos tardíos, bitácora y permisos siguen en verde.
+  - `process.ts` solo importa tipos.
+
+### 4.7 Partir `index`
+
+- `hooks.ts`: `imponerHija`, `evaluarSubagent` y el registro de hooks. `hooks-types.ts`: el tipo de evento derivado de `Plugin.Context` y las formas mínimas de los handlers. `tools.ts`: las cuatro tools, con `codemode: false`. `index.ts` queda solo para componer. No hay `index-utils.ts` y `server.ts` no cambia.
+- Los eventos usan la unión discriminada del SDK en lugar de casts sobre `ev.data`, también en `src/continuacion.ts`. El storage se valida con `esRegistro`.
+- Nombres en `continuacion`: `Estado` pasa a `EstadoContinuacion` y `background` pasa a `hijasActivas`.
+- **Escenarios:**
+  - El orden de los hooks no cambia.
+  - Una hija sin actor se rechaza (`test/hijas.test.ts`).
+  - Detener el plugin corta la suscripción y el timer.
+
+### 4.8 Cierre del lint
+
+- Lo que queda: los dobles de `estreno`, `continuacion` y `agentes` (este último con `Agent.Info.default(Agent.ID.make(id))`); el singleton de `src/process.ts`, que pasa a anotación (`typeof globalThis & { [key]?: Proceso }`); y los guards para los archivos externos que lee `scripts/migrate-omo.ts`.
+- `typescript/consistent-type-assertions` vuelve a `error` en todo el repo, con `assertionStyle: 'never'`. Se borran el override de scripts y tests y el comentario `ponytail:`.
+- **Escenarios:**
+  - `bun run lint` no encuentra assertions salvo `as const`, y eso incluye `as never` y `as unknown as`.
+  - El singleton sigue siendo el mismo objeto entre dos cargas del módulo.
+  - El migrador rechaza un archivo mal formado.
+
+---
+
 ## Después
 
 - **Re-casting** con la tabla por rol del reporte de benchmarks, en una pasada aparte de la migración.
@@ -321,6 +417,7 @@ Aplica el ADR 0013: los encargos pasan al `subagent` nativo y reparto agrega lo 
 - **Integración con Plannotator** para el visto bueno del estreno.
 - **grep y glob propios**, solo si los nativos se quedan cortos (ADR 0005).
 - **Cola global entre procesos** (en SQLite), si el tope por proceso provoca 429 con TUI y OpenChamber abiertos a la vez.
+- **Migración que borre las columnas inertes de `encargos`** (`background`, `boot_id`, `pid`, `starttime`, `aviso_pendiente`), si llegan a estorbar.
 
 ## Riesgos
 
