@@ -39,6 +39,18 @@ export interface ContextoHija {
   }
 }
 
+export interface ContextoContinuacion {
+  readonly session: {
+    get: (entrada: { sessionID: string }) => Promise<{ agent?: string }>
+    prompt: (entrada: {
+      sessionID: string
+      text: string
+      delivery: 'queue'
+      metadata: Record<string, boolean>
+    }) => Promise<unknown>
+  }
+}
+
 export interface EvaluacionSubagent {
   readonly sessionID: string
   readonly agent?: string

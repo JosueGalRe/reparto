@@ -8,8 +8,8 @@ import { formatear, leerPendientes } from './pendientes.ts'
 import { esRegistro } from './validation-utils.ts'
 
 import type { EntradaActa } from './ensayo.ts'
+import type { ContextoEstreno } from './estreno-types.ts'
 import type { Item } from './pendientes.ts'
-import type { Plugin } from '@opencode/plugin'
 import type { Database } from 'bun:sqlite'
 
 interface Ensayo {
@@ -239,7 +239,7 @@ export function registrarEstreno(
   return resultado
 }
 
-export function estreno(ctx: Plugin.Context) {
+export function estreno(ctx: ContextoEstreno) {
   return async (input: { sessionID: string; prompt: { text: string } }) => {
     const tokens = input.prompt.text
       .trim()

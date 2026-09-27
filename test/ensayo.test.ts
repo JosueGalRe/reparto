@@ -142,8 +142,8 @@ test('a malformed reviewer leaves the round pending and relaunches fresh encargo
       return hija
     },
   }
-  const run = ensayo(ctx, dispatch as Parameters<typeof ensayo>[1])
-  const tool = { sessionID: 'parent' } as Parameters<ReturnType<typeof ensayo>>[1]
+  const run = ensayo(ctx, dispatch)
+  const tool = { sessionID: 'parent', signal: new AbortController().signal }
 
   try {
     // When: the malformed review fails; Then: the round stays pending, not approved.

@@ -1,3 +1,4 @@
+import { Agent } from '@opencode/plugin'
 import { expect, test } from 'bun:test'
 
 import { motivoNegado, permisos, registrar, ruteo } from '../src/agentes.ts'
@@ -153,29 +154,26 @@ test('director y regidor limitan subagent a agentes de reparto; dramaturgo solo 
 
 test("regidor keeps director's read-only rules without inheriting context7", () => {
   // Given: a build agent with permissive defaults.
-  const agents = new Map<
-    string,
-    { permissions: { action: string; resource: string; effect: 'allow' | 'deny' | 'ask' }[]; mode?: string }
-  >()
+  const agents = new Map<string, NonNullable<ReturnType<AgentEditor['get']>>>()
 
-  agents.set('general', { permissions: [{ action: '*', resource: '*', effect: 'allow' }] })
-  const editor = {
-    list: () => [...agents.entries()].map(([id, agent]) => ({ id, ...agent })),
+  agents.set('general', {
+    ...Agent.Info.default(Agent.ID.make('general')),
+    permissions: [{ action: '*', resource: '*', effect: 'allow' }],
+  })
+  const editor: AgentEditor = {
+    list: () => [...agents.values()],
     get: (id: string) => agents.get(id),
-    update: (
-      id: string,
-      fn: (agent: {
-        permissions: { action: string; resource: string; effect: 'allow' | 'deny' | 'ask' }[]
-        mode?: string
-      }) => void,
-    ) => {
-      const agent = agents.get(id) ?? { permissions: [] }
+    update: (id, fn) => {
+      const agent = agents.get(id) ?? Agent.Info.default(Agent.ID.make(id))
 
       fn(agent)
       agents.set(id, agent)
     },
     default: () => {},
-  } as unknown as AgentEditor
+    remove: (id) => {
+      agents.delete(id)
+    },
+  }
 
   // When: the plugin registers its agents; Then: regidor keeps the read-only rules but not director's MCP grant.
   registrar(editor)

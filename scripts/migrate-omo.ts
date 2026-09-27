@@ -1,6 +1,8 @@
 #!/usr/bin/env bun
 // Migrate-omo.ts <omo.jsonc> <model.list.json>: prints reparto.jsonc migrated from OMO (plan 1.3).
 // The catalog is the output of `scripts/api.sh model.list` (enabled models only, with their variants).
+import { esRegistro } from '../src/validation-utils.ts'
+
 import type { Actor } from '../src/config.ts'
 
 type OmoEntry = string | { model: string; reasoning?: string }
@@ -34,6 +36,92 @@ const papeles: Record<string, string> = {
   writing: 'prosa',
 }
 const scale = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']
+
+function esReparto(valor: unknown): valor is OmoReparto {
+  if (
+    !esRegistro(valor) ||
+    (valor.model !== undefined && typeof valor.model !== 'string') ||
+    (valor.reasoning !== undefined && typeof valor.reasoning !== 'string') ||
+    (valor.models !== undefined &&
+      (!Array.isArray(valor.models) ||
+        !valor.models.every(
+          (entrada: unknown) =>
+            typeof entrada === 'string' ||
+            (esRegistro(entrada) &&
+              typeof entrada.model === 'string' &&
+              (entrada.reasoning === undefined || typeof entrada.reasoning === 'string')),
+        )))
+  ) {
+    return false
+  }
+
+  return typeof valor.model === 'string' || (Array.isArray(valor.models) && valor.models.length > 0)
+}
+
+export function leerOmo(valor: unknown): Omo {
+  if (!esRegistro(valor) || !esRegistro(valor['[opencode]'])) {
+    throw new Error('migración: archivo OMO mal formado: falta [opencode]')
+  }
+
+  const origen = valor['[opencode]']
+
+  if (!esRegistro(origen.agents) || !esRegistro(origen.categories)) {
+    throw new Error('migración: archivo OMO mal formado: faltan agentes, categorías o modelos válidos')
+  }
+
+  const agents: Record<string, OmoReparto> = {}
+  const categories: Record<string, OmoReparto> = {}
+
+  for (const nombre of Object.keys(agentes)) {
+    const entrada = origen.agents[nombre]
+
+    if (!esReparto(entrada)) {
+      throw new Error(`migración: archivo OMO mal formado: agente ${nombre} sin modelo válido`)
+    }
+
+    agents[nombre] = entrada
+  }
+
+  for (const nombre of Object.keys(papeles)) {
+    const entrada = origen.categories[nombre]
+
+    if (!esReparto(entrada)) {
+      throw new Error(`migración: archivo OMO mal formado: categoría ${nombre} sin modelo válido`)
+    }
+
+    categories[nombre] = entrada
+  }
+
+  return { '[opencode]': { agents, categories } }
+}
+
+export function leerCatalogo(valor: unknown): Catalog {
+  if (
+    !esRegistro(valor) ||
+    !Array.isArray(valor.data) ||
+    !valor.data.every(
+      (modelo: unknown) =>
+        esRegistro(modelo) &&
+        typeof modelo.providerID === 'string' &&
+        typeof modelo.id === 'string' &&
+        Array.isArray(modelo.variants) &&
+        modelo.variants.every((variant: unknown) => esRegistro(variant) && typeof variant.id === 'string'),
+    )
+  ) {
+    throw new Error('migración: catálogo mal formado: se esperan modelos con providerID, id y variants')
+  }
+
+  const catalog: Catalog = new Map()
+
+  for (const modelo of valor.data) {
+    catalog.set(
+      `${modelo.providerID}/${modelo.id}`,
+      modelo.variants.map((variant: { id: string }) => variant.id),
+    )
+  }
+
+  return catalog
+}
 
 export interface Migrado {
   actor: Actor
@@ -184,13 +272,9 @@ if (import.meta.main) {
     throw new Error('uso: migrate-omo.ts <omo.jsonc> <model.list.json>')
   }
 
-  const omo = Bun.JSONC.parse(await Bun.file(omoPath).text()) as Omo
-  const list = (await Bun.file(catalogPath).json()) as {
-    data: { providerID: string; id: string; variants: { id: string }[] }[]
-  }
-  const catalog: Catalog = new Map(
-    list.data.map((modelo) => [`${modelo.providerID}/${modelo.id}`, modelo.variants.map((variant) => variant.id)]),
-  )
+  const omo = leerOmo(Bun.JSONC.parse(await Bun.file(omoPath).text()))
+  const catalogo: unknown = await Bun.file(catalogPath).json()
+  const catalog = leerCatalogo(catalogo)
 
   process.stdout.write(migrar(omo, catalog, new URL('../schema/reparto.schema.json', import.meta.url).pathname))
 }

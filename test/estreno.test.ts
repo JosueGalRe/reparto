@@ -12,8 +12,9 @@ import { log } from '../src/log.ts'
 import { escribirPendientes, leerPendientes } from '../src/pendientes.ts'
 import { proceso } from '../src/process.ts'
 
+import { sesionesEstreno } from './dobles.ts'
+
 import type { EntradaActa } from '../src/ensayo.ts'
-import type { Plugin } from '@opencode/plugin'
 
 const dir = mkdtempSync(join(tmpdir(), 'reparto-estreno-'))
 
@@ -323,7 +324,7 @@ test('two plugin instances handling one event send one prompt', async () => {
         prompts.push(input.text)
       },
     },
-  } as unknown as Plugin.Context
+  }
 
   try {
     // When: both see the same id; Then: the event creates just one continuation prompt.
@@ -388,15 +389,15 @@ test('two simultaneous estreno commands create just one regidor session', async 
   let created = 0
   const prompts: string[] = []
   const ctx = {
-    session: {
+    session: sesionesEstreno({
       get: async () => ({ location: { directory: location } }),
       context: async () => [{ type: 'user' }],
       create: async () => ({ id: `ses_race_${++created}`, title: 'regidor · demo' }),
       prompt: async (input: { sessionID: string }) => {
         prompts.push(input.sessionID)
       },
-    },
-  } as unknown as Plugin.Context
+    }),
+  }
 
   try {
     // When: both command invocations race; Then: only one creates and starts a regidor.
@@ -432,7 +433,7 @@ for (const failure of ['switch', 'delivery'] as const) {
     let prompts = 0
     const deliveries: { sessionID: string; metadata?: Record<string, unknown> }[] = []
     const ctx = {
-      session: {
+      session: sesionesEstreno({
         get: async () => ({ location: { directory: location } }),
         context: async () => [],
         switchAgent: async () => {
@@ -447,8 +448,8 @@ for (const failure of ['switch', 'delivery'] as const) {
 
           deliveries.push(input)
         },
-      },
-    } as unknown as Plugin.Context
+      }),
+    }
     const sessionID = `ses_retry_${failure}`
     const command = () => estreno(ctx)({ sessionID, prompt: { text: '/estreno .reparto/planes/demo.md' } })
 

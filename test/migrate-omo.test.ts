@@ -1,6 +1,22 @@
 import { expect, test } from 'bun:test'
 
-import { type Catalog, migrar, migrarActor, migrarReparto } from '../scripts/migrate-omo.ts'
+import { type Catalog, leerCatalogo, leerOmo, migrar, migrarActor, migrarReparto } from '../scripts/migrate-omo.ts'
+
+test('rechaza un archivo OMO mal formado antes de migrar', () => {
+  // Given: falta el reparto del agente que la migración lee.
+  const archivo: unknown = { '[opencode]': { agents: {}, categories: {} } }
+
+  // When: se lee el OMO; Then: falla con el agente ausente.
+  expect(() => leerOmo(archivo)).toThrow(/archivo OMO mal formado: agente sisyphus/)
+})
+
+test('rechaza un catálogo mal formado antes de migrar', () => {
+  // Given: variants no es una lista de identificadores.
+  const archivo: unknown = { data: [{ providerID: 'p', id: 'm', variants: [null] }] }
+
+  // When: se lee el catálogo; Then: falla con un error en español.
+  expect(() => leerCatalogo(archivo)).toThrow(/catálogo mal formado/)
+})
 
 const catalog: Catalog = new Map([
   ['opencode-go/kimi-k3', ['max']],

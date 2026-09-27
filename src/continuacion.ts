@@ -4,8 +4,7 @@ import { log } from './log.ts'
 import { type Item, leerPendientes } from './pendientes.ts'
 import { hijasNativas } from './process.ts'
 
-import type { Evento } from './hooks-types.ts'
-import type { Plugin } from '@opencode/plugin'
+import type { ContextoContinuacion, Evento } from './hooks-types.ts'
 import type { Database } from 'bun:sqlite'
 
 interface EstadoContinuacion {
@@ -85,7 +84,7 @@ export function decisionGuardada(
   })
 }
 
-export function continuacion(ctx: Plugin.Context) {
+export function continuacion(ctx: ContextoContinuacion) {
   async function prompt(input: { sessionID: string; metadata?: Record<string, unknown> }) {
     if (input.metadata?.repartoAviso || input.metadata?.repartoContinuacion || input.metadata?.repartoInicio) {
       return

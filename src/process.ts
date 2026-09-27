@@ -26,7 +26,7 @@ export interface Proceso {
 // El estado sobrevive a hot reloads. El servidor diario carga el worktree estable, que solo cambia al publicar;
 // Después de publicar, reiniciar el servidor si algo se comporta raro.
 const key = Symbol.for('reparto.proceso')
-const global = globalThis as { [key]?: Proceso }
+const global: typeof globalThis & { [key]?: Proceso } = globalThis
 
 global[key] ??= { firma: '' }
 export const proceso: Proceso = global[key]

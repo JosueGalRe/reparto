@@ -1,4 +1,5 @@
 import type { ContextoEncargos } from '../src/encargos-types.ts'
+import type { ContextoEstreno } from '../src/estreno-types.ts'
 
 type Sesiones = ContextoEncargos['session']
 
@@ -25,6 +26,27 @@ export function sesionesDobles(metodos: Partial<Sesiones> = {}): Sesiones {
     },
     interrupt: async () => {
       throw new Error('inesperado: session.interrupt')
+    },
+    ...metodos,
+  }
+}
+
+export function sesionesEstreno(metodos: Partial<ContextoEstreno['session']>): ContextoEstreno['session'] {
+  return {
+    get: async () => {
+      throw new Error('inesperado: session.get')
+    },
+    context: async () => {
+      throw new Error('inesperado: session.context')
+    },
+    create: async () => {
+      throw new Error('inesperado: session.create')
+    },
+    prompt: async () => {
+      throw new Error('inesperado: session.prompt')
+    },
+    switchAgent: async () => {
+      throw new Error('inesperado: session.switchAgent')
     },
     ...metodos,
   }

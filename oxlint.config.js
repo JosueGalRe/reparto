@@ -73,7 +73,6 @@ export default {
       rules: {
         'import/no-nodejs-modules': 'off',
         'no-useless-assignment': 'off',
-        'typescript/consistent-type-assertions': 'warn',
       },
     },
   ],
@@ -210,9 +209,8 @@ export default {
       { blankLine: 'always', prev: '*', next: 'return' },
     ],
     'typescript/ban-ts-comment': 'error',
-    // Temporal: ponytail: vuelve a error en la fase de revisión; las as existentes se migran entonces.
     'typescript/consistent-type-assertions': [
-      'warn',
+      'error',
       {
         assertionStyle: 'never',
       },
