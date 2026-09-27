@@ -7,3 +7,5 @@ Los planes viven en el repo, en `.reparto/planes/<slug>.md`, y el dramaturgo sol
 ## Consequences
 
 `/estreno` se niega a correr si el archivo ya no coincide con la versión estrenada.
+
+La autorización de `/estreno` es una frontera de conducta, no un sandbox: cualquier agente con shell podría técnicamente escribir la base SQLite. Se acepta esa limitación, con el mismo criterio que ADR 0006.
