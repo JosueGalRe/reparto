@@ -126,14 +126,21 @@ test('native completion and permission events do not send duplicate text notices
       prompt: async () => {
         notices++
       },
+      context: async () => [],
     },
   } as never)
 
-  hijosNativos().set(hija, { padre: 'ses_p', actividad: Date.now(), avisado: false, permiso: false })
+  const desde = Date.now()
+
+  hijosNativos().set(hija, { padre: 'ses_p', desde, actividad: desde, avisado: false, permisos: new Set() })
 
   // When: a permission is requested and execution completes; Then: native UX alone handles both.
-  job.evento({ type: 'permission.asked', data: { sessionID: hija, id: 'per_1', action: 'read', resources: ['x'] } })
-  job.evento({ type: 'session.execution.succeeded', data: { sessionID: hija } })
+  await job.evento({
+    type: 'permission.asked',
+    created: desde + 1,
+    data: { sessionID: hija, id: 'per_1', action: 'read', resources: ['x'] },
+  })
+  await job.evento({ type: 'session.execution.succeeded', created: desde + 2, data: { sessionID: hija } })
   expect(notices).toBe(0)
   expect(hijosNativos().has(hija)).toBe(false)
 })
@@ -148,19 +155,78 @@ test('native stale watcher sends one notice, skips pending permission and stops 
       prompt: async (entrada: { text: string }) => {
         notices.push(entrada.text)
       },
+      context: async () => [],
     },
   }
   const job = encargos(ctx as never)
 
-  hijosNativos().set(hija, { padre: 'ses_p', actividad: 1, avisado: false, permiso: false })
-  hijosNativos().set(blocked, { padre: 'ses_p', actividad: 1, avisado: false, permiso: true })
+  hijosNativos().set(hija, { padre: 'ses_p', desde: 0, actividad: 1, avisado: false, permisos: new Set() })
+  hijosNativos().set(blocked, { padre: 'ses_p', desde: 0, actividad: 1, avisado: false, permisos: new Set(['per_1']) })
   // When: the watcher runs twice.
   await job.vigilar()
   await job.vigilar()
   // Then: only the inactive child is reported once, without interruption.
   expect(notices).toHaveLength(1)
   expect(notices[0]).toContain(hija)
-  job.evento({ type: 'session.execution.succeeded', data: { sessionID: hija } })
+  await job.evento({ type: 'session.execution.succeeded', created: 2, data: { sessionID: hija } })
   expect(hijosNativos().has(hija)).toBe(false)
   hijosNativos().delete(blocked)
+})
+
+test('a late terminal event cannot remove a continued native child watch', async () => {
+  // Given: the same child watched from a newer execution.
+  const hija = `ses_${crypto.randomUUID()}`
+  const desde = Date.now()
+  const vigilancia = { padre: 'ses_p', desde, actividad: desde, avisado: false, permisos: new Set<string>() }
+
+  hijosNativos().set(hija, vigilancia)
+
+  // When: an earlier execution finishes late; Then: the new watch survives.
+  await encargos({} as never).evento({ type: 'session.execution.succeeded', created: desde - 1, data: { sessionID: hija } })
+  expect(hijosNativos().get(hija)).toBe(vigilancia)
+  hijosNativos().delete(hija)
+})
+
+test('one permission reply leaves the other pending for the stale watcher', async () => {
+  // Given: two outstanding requests on an inactive native child.
+  const hija = `ses_${crypto.randomUUID()}`
+  const vigilancia = { padre: 'ses_p', desde: 0, actividad: 1, avisado: false, permisos: new Set<string>() }
+  const notices: string[] = []
+  const job = encargos({
+    session: {
+      prompt: async ({ text }: { text: string }) => {
+        notices.push(text)
+      },
+    },
+  } as never)
+
+  hijosNativos().set(hija, vigilancia)
+
+  // When: one of two requests is answered; Then: no stale notice is sent.
+  await job.evento({ type: 'permission.asked', created: 2, data: { sessionID: hija, id: 'per_a' } })
+  await job.evento({ type: 'permission.asked', created: 3, data: { sessionID: hija, id: 'per_b' } })
+  await job.evento({ type: 'permission.replied', created: 4, data: { sessionID: hija, requestID: 'per_a' } })
+  vigilancia.actividad = 1
+  await job.vigilar()
+  expect(notices).toHaveLength(0)
+  expect([...vigilancia.permisos]).toEqual(['per_b'])
+  hijosNativos().delete(hija)
+})
+
+test('bitacora retains a native final message after context compaction', async () => {
+  // Given: a child whose context initially includes its final answer.
+  const hija = `ses_${crypto.randomUUID()}`
+  let messages = [{ type: 'assistant', content: [{ type: 'text', text: 'Final answer' }] }]
+  const job = encargos({
+    session: { get: async () => ({ parentID: 'ses_p', agent: 'rapido', outcome: 'succeeded' }), context: async () => messages },
+  } as never)
+
+  hijosNativos().set(hija, { padre: 'ses_p', desde: 1, actividad: 1, avisado: false, permisos: new Set() })
+
+  // When: completion is recorded and V2 compacts the context; Then: SQLite supplies the original answer.
+  await job.evento({ type: 'session.execution.succeeded', created: 2, data: { sessionID: hija } })
+  messages = []
+  const result = await job.bitacora({ id: hija })
+
+  expect(result.content).toContain('Mensaje final:\n\nFinal answer')
 })

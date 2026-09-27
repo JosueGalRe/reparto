@@ -514,6 +514,9 @@ export function encargos(ctx: Ctx) {
 
       return completo && llamada.resultado ? `${base}\n  → ${llamada.resultado.replaceAll('\n', '\n    ')}` : base
     })
+    const final = db().query('SELECT texto FROM mensajes_hijas WHERE hija = $hija').get({ hija: entrada.id }) as {
+      texto: string
+    } | null
 
     return {
       content: [
@@ -523,7 +526,7 @@ export function encargos(ctx: Ctx) {
         `Tool calls (${llamadas.length}):`,
         lineas.join('\n') || '(ninguna)',
         `Mensaje final:`,
-        encargo?.mensaje_final ?? (sesion ? await mensajeFinal(entrada.id) : undefined) ?? '(todavía no hay)',
+        encargo?.mensaje_final ?? final?.texto ?? (sesion ? await mensajeFinal(entrada.id) : undefined) ?? '(todavía no hay)',
       ].join('\n\n'),
     }
   }
@@ -576,7 +579,7 @@ export function encargos(ctx: Ctx) {
   }
 
   /** Eventos de todas las locations del proceso (S15); los session.execution.* no traen location (S13). */
-  function evento(ev: { type: string; created?: number; data?: unknown }) {
+  async function evento(ev: { type: string; created?: number; data?: unknown }) {
     const data = ev.data as
       | {
           sessionID?: string
@@ -590,17 +593,37 @@ export function encargos(ctx: Ctx) {
     const abierto = data?.sessionID ? abiertos().get(data.sessionID) : undefined
     const nativo = data?.sessionID ? hijosNativos().get(data.sessionID) : undefined
 
-    if (nativo) {
+    if (nativo && posterior(ev.created, nativo.desde)) {
       if (
         ev.type === 'session.execution.succeeded' ||
         ev.type === 'session.execution.failed' ||
         ev.type === 'session.execution.interrupted'
       ) {
-        hijosNativos().delete(data!.sessionID!)
-      } else if (ev.type === 'permission.asked') {
-        nativo.permiso = true
-      } else if (ev.type === 'permission.replied') {
-        nativo.permiso = false
+        const hija = data?.sessionID
+
+        if (hija) {
+          hijosNativos().delete(hija)
+
+          try {
+            const texto = await mensajeFinal(hija)
+
+            if (texto) {
+              write(db(), 'mensaje final de hija', () =>
+                db()
+                  .query(`INSERT INTO mensajes_hijas (hija, desde, texto) VALUES ($hija, $desde, $texto)
+                    ON CONFLICT (hija) DO UPDATE SET desde = excluded.desde, texto = excluded.texto
+                    WHERE excluded.desde >= mensajes_hijas.desde`)
+                  .run({ hija, desde: nativo.desde, texto }),
+              )
+            }
+          } catch (error) {
+            log.error('mensaje final de hija falló', { hija, error: String(error) })
+          }
+        }
+      } else if (ev.type === 'permission.asked' && data?.id) {
+        nativo.permisos.add(data.id)
+      } else if (ev.type === 'permission.replied' && data?.requestID) {
+        nativo.permisos.delete(data.requestID)
         nativo.actividad = Date.now()
       } else if (/^session\.(step|tool|text|reasoning)\./.test(ev.type)) {
         nativo.actividad = Date.now()
@@ -695,7 +718,7 @@ export function encargos(ctx: Ctx) {
     const ahora = Date.now()
 
     for (const [hija, nativo] of hijosNativos()) {
-      if (nativo.avisado || nativo.permiso || ahora - nativo.actividad < PLAZO_ESTANCADO) {
+      if (nativo.avisado || nativo.permisos.size || ahora - nativo.actividad < PLAZO_ESTANCADO) {
         continue
       }
 

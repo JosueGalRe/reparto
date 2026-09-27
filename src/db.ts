@@ -52,6 +52,11 @@ CREATE TABLE IF NOT EXISTS bitacora (
   hora INTEGER NOT NULL,
   PRIMARY KEY (hija, mensaje, llamada)
 );
+CREATE TABLE IF NOT EXISTS mensajes_hijas (
+  hija TEXT PRIMARY KEY,
+  desde INTEGER NOT NULL,
+  texto TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS versiones (
   plan TEXT NOT NULL,
   hash TEXT NOT NULL,

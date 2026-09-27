@@ -1,6 +1,6 @@
 import { Plugin } from '@opencode/plugin'
 
-import { esActor, etiqueta, modelRef, publicar, resolver, validar } from './actores.ts'
+import { agentesPropios, esActor, etiqueta, modelRef, publicar, resolver, validar } from './actores.ts'
 import { conShellDeLectura, motivoNegado, papeles, registrar, ruteo } from './agentes.ts'
 import { bajasVigentes, deBaja, suplencias } from './bajas.ts'
 import { readCatalog } from './catalog.ts'
@@ -13,6 +13,8 @@ import { clavePlan, estreno, planDeSesion } from './estreno.ts'
 import { log } from './log.ts'
 import { escribirPendientes, estados, formatear, leerPendientes, parsearItems } from './pendientes.ts'
 import { proceso } from './process.ts'
+
+import type { PermissionEvaluation } from '@opencode/plugin/promise/permission'
 
 // Id de esta copia del módulo: en 2.0.18 cada location importa la suya (sondas.md, S15).
 const modulo = crypto.randomUUID().slice(0, 8)
@@ -29,14 +31,12 @@ export async function imponerHija(ctx: Plugin.Context, sessionID: string) {
     return false
   }
 
-  hijosNativos().set(sessionID, { padre: sesion.parentID, actividad: Date.now(), avisado: false, permiso: false })
+  const desde = Date.now()
   const agente = sesion.agent ?? ''
   const actor = proceso.validacion && resolver(proceso.validacion, agente, deBaja(bajasVigentes(db())))
 
   if (!actor) {
-    log.warn('sin actor para imponer', { sessionID, agente })
-
-    return true
+    throw new Error(`hija ${sessionID} (${agente}) sin actor disponible`)
   }
 
   if (!sesion.model || !esActor(actor, sesion.model)) {
@@ -44,7 +44,37 @@ export async function imponerHija(ctx: Plugin.Context, sessionID: string) {
     log.info('actor impuesto', { sessionID, agente, actor: etiqueta(actor), antes: sesion.model ?? null })
   }
 
+  hijosNativos().set(sessionID, { padre: sesion.parentID, desde, actividad: Date.now(), avisado: false, permisos: new Set() })
+
   return true
+}
+
+export function evaluarSubagent(input: PermissionEvaluation) {
+  if (input.action !== 'subagent' || input.effect !== 'allow') {
+    return
+  }
+
+  if (input.agent === 'regidor' && !planDeSesion(db(), input.sessionID)) {
+    input.effect = 'deny'
+    input.message = 'regidor sin plan estrenado: usa /estreno <plan>'
+
+    return
+  }
+
+  const destino = input.resources[0]
+
+  if (!destino || (!hijos.has(destino) && !agentesPropios.has(destino))) {
+    return
+  }
+
+  const bajas = bajasVigentes(db())
+
+  if (proceso.validacion && resolver(proceso.validacion, destino, deBaja(bajas))) {
+    return
+  }
+
+  input.effect = 'deny'
+  input.message = `reparto: ${destino} sin actor disponible${proceso.validacion ? '' : ' (validación pendiente)'}. Bajas: ${bajas.map((baja) => `${baja.id} hasta ${new Date(baja.hasta).toISOString()}`).join(', ') || 'ninguna'}`
 }
 
 export default Plugin.define({
@@ -143,6 +173,7 @@ export default Plugin.define({
           })
         } catch (error) {
           log.error('hook prompt falló', { sessionID: input.sessionID, error: String(error) })
+          throw error
         }
       })
       await ctx.session.hook('prompt', (input) => continuar.prompt(input))
@@ -163,6 +194,8 @@ export default Plugin.define({
 
       // Solo corre cuando las reglas ya dieron allow (S7): sirve para negar, no para permitir.
       await ctx.permission.hook('evaluate', (input) => {
+        evaluarSubagent(input)
+
         if (input.action !== 'shell' || input.effect !== 'allow' || !conShellDeLectura.has(String(input.agent))) {
           return
         }
@@ -341,7 +374,7 @@ export default Plugin.define({
       void (async () => {
         try {
           for await (const ev of ctx.event.subscribe({ signal: stop.signal })) {
-            gestor.evento(ev)
+            await gestor.evento(ev)
             void continuar.evento(ev)
           }
         } catch (error) {
