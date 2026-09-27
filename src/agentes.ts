@@ -17,7 +17,8 @@ const deny = (...actions: string[]): Rule[] => actions.map((action) => ({ action
 // V2 exige que cada tramo de `;`, `&&`, `|` y `$( )` esté permitido (S7). V2 oculta las tools negadas pero no
 // los comandos: el guion de cada agente de lectura lleva esta misma lista (`seccionShell`).
 export const comandosDeLectura = ["rg *", "git status*", "git diff", "git diff *", "git ls-files*", "git log*", "git show*", "head *"];
-const shellDeLectura: Rule[] = comandosDeLectura.map((resource) => ({
+// ponytail: acoplado al plugin vendor/rtk.ts; cuando el shim exponga el agente, rtk debe omitir los de solo lectura.
+const shellDeLectura: Rule[] = [...comandosDeLectura, ...comandosDeLectura.filter((c) => c !== "head *").map((c) => `rtk ${c}`)].map((resource) => ({
   action: "shell",
   resource,
   effect: "allow",
@@ -113,4 +114,3 @@ export function motivoNegado(tramo: string): string | undefined {
   const opcion = tramo.match(/(?:^|\s)(--(?:output|ext-diff|textconv|pre|pre-glob))(?:[=\s]|$)/);
   if (opcion) return `opción ${opcion[1]}`;
 }
-

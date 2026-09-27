@@ -11,7 +11,8 @@
       "package": "file:///home/josuegalre/projects/opencode-v1-compat/dist",
       "options": {
         "plugins": [
-          "opencode-pty"
+          "opencode-pty",
+          "file:///home/josuegalre/projects/opencode-v1-compat/vendor/rtk.ts"
         ]
       }
     },

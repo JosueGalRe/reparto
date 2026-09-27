@@ -37,6 +37,21 @@ test("director: la lista permitida va después de negar todo, y las restriccione
   expect(papel.slice(-3).map((r) => [r.action, r.effect])).toEqual([["question", "deny"], ["subagent", "deny"], ["delegar", "deny"]]);
 });
 
+test("director: permite solo los comandos de lectura reescritos por rtk", () => {
+  const reglas = permisos([]).director;
+  const efecto = (resource: string) =>
+    reglas.findLast((rule) =>
+      (rule.action === "shell" || rule.action === "*") &&
+      (rule.resource === "*" || rule.resource === resource || (rule.resource.endsWith("*") && resource.startsWith(rule.resource.slice(0, -1)))),
+    )?.effect;
+
+  expect(efecto("rtk git status")).toBe("allow");
+  expect(efecto("rtk rg x")).toBe("allow");
+  expect(efecto("head -1")).toBe("allow"); // el otro tramo de `rtk rg x | head -1`
+  expect(efecto("rtk read x")).toBe("deny");
+  expect(efecto("rtk curl https://example.com")).toBe("deny");
+});
+
 test("ruteo: un papel desactivado no aparece en la tabla, y las exclusiones se listan", () => {
   const texto = ruteo({
     actores: new Map(),
