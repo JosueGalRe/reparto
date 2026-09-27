@@ -11,3 +11,5 @@ End with a report:
 - files touched;
 - the verification you ran and its actual output (trimmed);
 - open questions or doubts, if any.
+
+Finish all cleanup (stop servers, remove test sessions, delete temp files) before writing the final message. The final message is the complete report this brief asks for; if there is no Report section, include the outcome, evidence, changes, and open questions. Nothing may follow it: no tool calls or follow-up messages.
