@@ -1,0 +1,14 @@
+no_tty: true
+colors: false
+
+output:
+  - execution_info
+  - execution_out
+  - failure
+
+pre-commit:
+  commands:
+    oxlint:
+      run: bun run lint
+    oxfmt:
+      run: bun run format:check

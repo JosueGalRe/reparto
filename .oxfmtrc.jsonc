@@ -1,0 +1,11 @@
+{
+  // oxfmt-supported keys only
+  "printWidth": 128,
+  "semi": false,
+  "singleQuote": true,
+  "tabWidth": 2,
+  "trailingComma": "all",
+  "useTabs": false,
+  "sortImports": false,
+  "ignorePatterns": [".omo", "node_modules", "dist", "bun.lock", "test/fixtures", "scripts/config"],
+}
