@@ -55,6 +55,7 @@ export default Plugin.define({
       // como primer turno.
       await ctx.session.hook("prompt", async (input) => {
         try {
+          if (input.metadata?.repartoAviso === true) return;
           const sesion = await ctx.session.get({ sessionID: input.sessionID });
           const agente = sesion.agent ?? "director";
           if (!primarios.has(agente)) return;

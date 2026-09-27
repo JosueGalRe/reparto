@@ -44,6 +44,7 @@ export const destinos = new Set<string>([...papeles, "utilero", "archivista", "o
 
 export const PLAZO_ESTANCADO = 30 * 60_000;
 const TOPE_AVISO = 8_000;
+const TOPE_AVISO_VISIBLE = 1_500;
 const TOPE_RESULTADO = 4_000;
 const CONCURRENCIA = 3;
 
@@ -169,6 +170,25 @@ function parsear(input: unknown): Entrada {
 const etiquetaRef = (m: { providerID: string; id: string; variant?: string } | undefined) =>
   m ? etiqueta({ model: `${m.providerID}/${m.id}`, variant: m.variant }) : "desconocido";
 
+export function textoAviso(e: Encargo, ultimoActor: string, titulo: string): string {
+  const cabeza = `[reparto] ${titulo} — ${e.estado} (${e.hija})`;
+  const suplente = ultimoActor.replace(/#default$/, "") !== e.actor.replace(/#default$/, "") ? `\nentró como suplente en lugar de ${e.actor}.` : "";
+  const pista = `(bitacora({ id: "${e.hija}" }) para el resto)`;
+  switch (e.estado) {
+    case "terminado":
+      return `${cabeza}\n\n${recortar(e.mensaje_final ?? "", TOPE_AVISO_VISIBLE)}${suplente}\n${pista}`;
+    case "fallido":
+      return `${cabeza}\n\nError: ${recortar(e.error ?? "la ejecución falló", 120)}. Último actor: ${ultimoActor}.${suplente}${e.mensaje_final ? `\nÚltimo mensaje: ${recortar(e.mensaje_final, TOPE_AVISO_VISIBLE)}` : ""}\n${pista}`;
+    case "interrumpido":
+      return `${cabeza}\n\nInterrumpido antes de completar el encargo.${suplente}\n${pista}`;
+    case "estancado":
+      return `${cabeza}\n\nSin actividad desde hace ${PLAZO_ESTANCADO / 60_000} min. Sigue abierto; decide si lo interrumpes.${suplente}\n${pista}`;
+    case "en_cola":
+    case "corriendo":
+      throw new Error(`aviso para encargo abierto: ${e.estado}`);
+  }
+}
+
 export function encargos(ctx: Ctx, config: Config) {
   const limite = (proveedor: string) => config.proveedores?.[proveedor]?.concurrencia ?? CONCURRENCIA;
 
@@ -184,28 +204,14 @@ export function encargos(ctx: Ctx, config: Config) {
     }
   }
 
-  async function avisar(e: Encargo, texto: string) {
+  async function avisar(e: Encargo, ultimoActor: string) {
     try {
-      await ctx.session.synthetic({ sessionID: e.padre, text: texto, description: `reparto: encargo ${e.estado}`, delivery: "queue" });
+      const hija = await ctx.session.get({ sessionID: e.hija });
+      await ctx.session.prompt({ sessionID: e.padre, text: textoAviso(e, ultimoActor, hija.title ?? e.hija), delivery: "queue", metadata: { repartoAviso: true } });
       write(db(), "aviso enviado", () => db().query("UPDATE encargos SET aviso_pendiente = 0 WHERE id = $id").run({ id: e.id }));
       log.info("aviso", { id: e.id, hija: e.hija, padre: e.padre, estado: e.estado });
     } catch (error) {
       log.error("aviso falló", { id: e.id, padre: e.padre, error: String(error) });
-    }
-  }
-
-  function textoAviso(e: Encargo, ultimoActor: string) {
-    const suplente = ultimoActor.replace(/#default$/, "") !== e.actor.replace(/#default$/, "") ? `; entró como suplente en lugar de ${e.actor}` : "";
-    const cabeza = `[reparto] Encargo ${e.hija} (${e.a}, ${ultimoActor}${suplente})`;
-    switch (e.estado) {
-      case "terminado":
-        return `${cabeza} terminado.\n\n${recortar(e.mensaje_final ?? "", TOPE_AVISO)}\n\n(bitacora({ id: "${e.hija}" }) para ver sus tool calls)`;
-      case "fallido":
-        return `${cabeza} fallido: ${e.error?.replace(/[.\s]+$/, "")}.${e.mensaje_final ? `\n\nÚltimo mensaje:\n${recortar(e.mensaje_final, TOPE_AVISO)}` : ""}`;
-      case "interrumpido":
-        return `${cabeza} interrumpido.`;
-      default:
-        return `${cabeza} estancado: sin actividad desde hace ${PLAZO_ESTANCADO / 60_000} min. Sigue abierto; decide si lo interrumpes.`;
     }
   }
 
@@ -241,7 +247,7 @@ export function encargos(ctx: Ctx, config: Config) {
       abiertos().delete(e.hija);
       const cerrado = { ...e, ...cambios, estado: c.estado };
       log.info("encargo cerrado", { id, hija: e.hija, a: e.a, estado: c.estado, error: c.error, actor: c.ultimoActor });
-      if (e.background) await avisar(cerrado, textoAviso(cerrado, c.ultimoActor));
+      if (e.background) await avisar(cerrado, c.ultimoActor);
     } catch (error) {
       log.error("cierre falló", { id, error: String(error) });
     } finally {
@@ -268,7 +274,7 @@ export function encargos(ctx: Ctx, config: Config) {
       if (transicion(actual, "fallido", { cerrado: Date.now(), error: `el prompt falló: ${String(error)}`, aviso_pendiente: e.background })) {
         soltarCupo(id);
         abiertos().delete(e.hija);
-        if (e.background) await avisar({ ...actual, estado: "fallido", error: `el prompt falló: ${String(error)}` }, textoAviso({ ...actual, estado: "fallido", error: `el prompt falló: ${String(error)}` }, e.actor));
+        if (e.background) await avisar({ ...actual, estado: "fallido", error: `el prompt falló: ${String(error)}` }, e.actor);
       }
       return false;
     }
@@ -375,7 +381,7 @@ export function encargos(ctx: Ctx, config: Config) {
       const cambios = { cerrado: Date.now(), error: "interrumpido antes de correr", aviso_pendiente: e.background };
       if (transicion(e, "fallido", cambios)) {
         abiertos().delete(hija);
-        if (e.background) await avisar({ ...e, ...cambios, estado: "fallido" }, textoAviso({ ...e, ...cambios, estado: "fallido" }, e.actor));
+        if (e.background) await avisar({ ...e, ...cambios, estado: "fallido" }, e.actor);
       }
     } else {
       await ctx.session.interrupt({ sessionID: hija });
@@ -466,7 +472,7 @@ export function encargos(ctx: Ctx, config: Config) {
       if (e?.estado !== "corriendo" || !transicion(e, "estancado")) continue;
       abierto.estancado = true;
       log.warn("encargo estancado", { id: e.id, hija });
-      await avisar({ ...e, estado: "estancado" }, textoAviso({ ...e, estado: "estancado" }, e.actor));
+      await avisar({ ...e, estado: "estancado" }, e.actor);
     }
   }
 
@@ -486,10 +492,10 @@ export function encargos(ctx: Ctx, config: Config) {
           if (!transicion(e, estado, cambios)) continue;
           const cerrado = { ...e, ...cambios, estado };
           log.info("encargo reconciliado", { id: e.id, hija: e.hija, estado, error: cambios.error });
-          await avisar(cerrado, textoAviso(cerrado, c?.ultimoActor ?? e.actor));
+          await avisar(cerrado, c?.ultimoActor ?? e.actor);
         } else {
           log.info("aviso pendiente reenviado", { id: e.id, hija: e.hija, estado: e.estado });
-          await avisar(e, textoAviso(e, e.actor));
+          await avisar(e, e.actor);
         }
       } catch (error) {
         log.error("reconciliación falló", { id: e.id, error: String(error) });

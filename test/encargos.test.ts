@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDb } from "../src/db.ts";
-import { argumentoClave, leer, posterior, tituloEncargo, transicion, vivo, yo } from "../src/encargos.ts";
+import { argumentoClave, leer, posterior, textoAviso, tituloEncargo, transicion, vivo, yo } from "../src/encargos.ts";
 import { proceso } from "../src/process.ts";
 
 const dir = mkdtempSync(join(tmpdir(), "reparto-encargos-"));
@@ -63,4 +63,25 @@ test("argumento clave de una tool call", () => {
 test("título de encargo resume la primera línea no vacía y recorta a 60 caracteres", () => {
   expect(tituloEncargo("profundo", `\n  ${"palabra ".repeat(10)}fin\nresto`)).toBe(`profundo · ${`${"palabra ".repeat(7)}palabra `.slice(0, 60)}…`);
   expect(tituloEncargo("rapido", "\n  resumen corto  \nresto")).toBe("rapido · resumen corto");
+});
+
+test("aviso terminado incluye título, resultado y pista de bitácora", () => {
+  const e = { ...leer(crear("terminado"))!, mensaje_final: "OK" };
+  const texto = textoAviso(e, "openai/x", "rapido · Responder OK");
+  expect(texto).toBe(`[reparto] rapido · Responder OK — terminado (${e.hija})\n\nOK\n(bitacora({ id: "${e.hija}" }) para el resto)`);
+});
+
+test("aviso fallido incluye error, último actor y suplente", () => {
+  const e = { ...leer(crear("fallido"))!, error: "sin salida", mensaje_final: "último" };
+  const texto = textoAviso(e, "openai/y", "rapido · Responder OK");
+  expect(texto).toContain(`— fallido (${e.hija})\n\nError: sin salida. Último actor: openai/y.`);
+  expect(texto).toContain("entró como suplente en lugar de openai/x.");
+  expect(texto).toContain("Último mensaje: último");
+});
+
+test("aviso recorta el resultado largo", () => {
+  const e = { ...leer(crear("terminado"))!, mensaje_final: "x".repeat(2_000) };
+  const texto = textoAviso(e, "openai/x", "rapido · Responder OK");
+  expect(texto).toContain(`${"x".repeat(1_500)}\n[… recortado, 500 caracteres más]`);
+  expect(texto).not.toContain("x".repeat(1_501));
 });
