@@ -43,7 +43,7 @@ _Avoid_: nivel, reasoning, effort
 ### Encargos
 
 **Encargo**:
-Tarea que se delega a un agente o papel; se identifica por su sesión hija.
+Tarea que se delega a un agente o papel con el `subagent` nativo; es una sesión hija nativa (con `parentID`) a la que reparto le impone su actor, y se identifica por esa sesión. `delegar` queda solo como mecanismo interno de `ensayar`.
 _Avoid_: task, background task, job
 
 **Bitácora**:

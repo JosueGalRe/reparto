@@ -1,5 +1,7 @@
 # Encargos con una tool propia
 
+**Reemplazado por el [ADR 0013](./0013-delegacion-con-subagent-nativo.md).** El motivo "no tiene background" era falso; `delegar` queda solo como mecanismo interno de `ensayar`.
+
 reparto delega con una tool propia, `delegar`, y les niega el `subagent` nativo al director y a `build`. La tool:
 
 - resuelve el actor según el titular, los suplentes y las bajas;

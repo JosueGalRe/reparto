@@ -2,7 +2,7 @@
 
 Vocabulario en [CONTEXT.md](../CONTEXT.md) y decisiones en [docs/adr/](./adr/). Este plan ordena el trabajo y define cómo se verifica cada paso; no vuelve a decidir lo que ya está en los ADRs.
 
-Hay tres fases: **0** confirma supuestos sobre V2 que hoy no están verificados, **1** es el MVP, que reemplaza a OMO en el uso diario, y **2** agrega los planes. Una fase no empieza sin que la anterior haya pasado sus escenarios. Si un resultado de la fase 0 contradice un ADR, se actualiza ese ADR antes de seguir.
+Hay cuatro fases: **0** confirma supuestos sobre V2 que hoy no están verificados, **1** es el MVP, que reemplaza a OMO en el uso diario, **2** agrega los planes y **3** pasa los encargos al `subagent` nativo (ADR 0013). Una fase no empieza sin que la anterior haya pasado sus escenarios. Si un resultado de la fase 0 contradice un ADR, se actualiza ese ADR antes de seguir.
 
 Supuestos base: OpenCode `2.0.18`, SDK `@opencode/plugin` fijado en la versión exacta instalada, runtime Bun y plugin local en `~/projects/reparto` (sin publicarlo en npm). En cada upgrade de OpenCode se hace un diff de tipos del SDK y se vuelven a correr los escenarios de las rebanadas afectadas.
 
@@ -264,6 +264,55 @@ Arranca solo después de un corte estable.
 
 ---
 
+## Fase 3: delegación nativa
+
+Aplica el ADR 0013: los encargos pasan al `subagent` nativo y reparto agrega lo suyo con hooks. `delegar` sobrevive solo dentro de `ensayar`.
+
+**Arnés de desarrollo.** `scripts/run.sh` exporta `REPARTO_DATA_DIR` a un directorio en `/tmp` por defecto: los servidores de desarrollo escribían en el log y la base de producción.
+
+### 3.1 Actor y bajas en hijas nativas
+
+- El hook `prompt` impone el actor en toda sesión con `parentID` cuyo agente sea de reparto: `switchModel` con modelo y variant antes de la primera request. Gana sobre el `model` que pase el padre en `subagent`.
+- El hook `retry` ya cubre a las hijas: se dispara con su `sessionID` y el suplente entra igual que en 1.8.
+- La continuación con `sessionID` vuelve a pasar por el hook `prompt`, así que la hija retomada también sale con el actor resuelto en ese momento.
+- **Escenarios:**
+  - El director delega a `prosa` con `subagent` en background: la primera request de la hija sale con el titular de `prosa`, no con el modelo del director.
+  - Con una baja de `openai` en SQLite, la hija sale con el suplente.
+  - Retomar una hija con `sessionID` conserva su historial y su `parentID`, y sale con el actor resuelto.
+
+### 3.2 Bitácora, `interrumpir` y vigilante de estancados
+
+- `execute.after` registra las tool calls de toda sesión con `parentID` cuyo agente sea de reparto; `bitacora` lee esa tabla y el último mensaje de la hija.
+- `interrumpir({ id })` acepta solo hijas cuyo `parentID` sea la sesión que llama.
+- Vigilante de estancados por eventos: sin `session.step.*`, `session.tool.*`, `session.text.*` ni `session.reasoning.*` durante 30 min, y sin permiso pendiente, se avisa al padre. Sin filas de estado ni transiciones: el estado de la hija lo da V2.
+- **Escenarios:**
+  - `bitacora` de una hija nativa de utilero lista los archivos que leyó, también después de compactarla.
+  - `interrumpir` con el id de una hija de otra sesión: se rechaza.
+  - Una hija sin actividad 30 min: el padre recibe un solo aviso de estancado.
+
+### 3.3 Permisos y guiones
+
+- Director, regidor y `build` tienen `subagent` permitido y `delegar` negado. Papeles y subagentes no tienen ninguno de los dos.
+- El guion del director enruta con `subagent` en background y retoma con `sessionID`.
+- El guion de papel carga los skills del brief con la tool `skill` antes de empezar, no usa `pty_*` (una llamada a pty que nunca vuelve rompe el transcript en OpenAI) y arranca servidores con `background: true` del shell.
+- **Escenarios:**
+  - `delegar` no aparece en la lista de tools del director; `subagent` sí.
+  - Un papel intenta `subagent`: se le niega.
+  - Un brief que nombra `programming`: la primera tool call de la hija es `skill`.
+  - Si una hija ignora el skill, se inyecta con el hook `context` (plan B del ADR 0013).
+
+### 3.4 Retiro de avisos, reconciliación y cola
+
+- Se borra para hijas nativas: los avisos visibles de encargo, los avisos de permisos pendientes, la reconciliación al arrancar y la cola por proveedor. Se borra el código muerto que queda en `src/encargos.ts`.
+- `ensayar` sigue usando `delegar` sincrónico y sus tablas.
+- **Escenarios:**
+  - Un encargo termina: el padre recibe solo el `synthetic` nativo, sin aviso de reparto.
+  - Una hija pide un permiso: aparece como tarjeta en la vista del padre en OpenChamber y no llega ningún aviso de texto.
+  - Un ensayo general completo cierra igual que en 2.2.
+  - Con el servidor de desarrollo corriendo, `~/.local/share/reparto/` no cambia.
+
+---
+
 ## Después
 
 - **Re-casting** con la tabla por rol del reporte de benchmarks, en una pasada aparte de la migración.
@@ -274,7 +323,7 @@ Arranca solo después de un corte estable.
 
 ## Riesgos
 
-- **API de V2 en movimiento**: 2.0.x todavía cambia. Se fija la versión y, en cada upgrade, se hace un diff de tipos del SDK y se vuelven a correr los escenarios de las rebanadas afectadas.
+- **API de V2 en movimiento**: 2.0.x todavía cambia. Se fija la versión y, en cada upgrade, se hace un diff de tipos del SDK y también un diff del schema de las tools nativas sacado del binario, y se vuelven a correr los escenarios de las rebanadas afectadas. Un grep del binario con nombres de otra tool no sirve como sonda (ADR 0013).
 - **Tool bridge de `claude-code`**: S11 pasó con 2.0.16 y `opencode-claude` 0.14.0. Se vuelve a probar con cada upgrade de cualquiera de los dos.
 - **Hooks experimentales**: la cuota de `openai` solo se ve en `experimental.ws.receive` (S3). Si ese hook cambia, la baja de OpenAI cae en `plazoBaja` en lugar del reset real.
 - **OpenChamber y el agente por defecto**: OpenChamber no usa `AgentEditor.default` y abre en el agente guardado o en `plan` (S10). El director hay que elegirlo una vez a mano; el hook `prompt` igual le impone su actor.
