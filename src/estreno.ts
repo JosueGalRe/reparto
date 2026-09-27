@@ -121,8 +121,15 @@ export function estreno(ctx: Plugin.Context) {
     }
     const { estreno: registro, items } = resultado;
     const texto = `Plan estrenado: ${nombre}\nHash: ${ref.hash}\nTipo: ${registro.tipo}${registro.tipo === "con_objeciones" ? `\nObjeciones abiertas: ${registro.objeciones}` : ""}\n\n${contenido}\n\nPendientes del plan:\n${formatear(items)}\n\nContinúa desde la primera tarea sin terminar. Delega cada cambio y verifica cada tarea.`;
-    if (!nueva) await ctx.session.switchAgent({ sessionID: input.sessionID, agent: "regidor" });
-    await ctx.session.prompt({ sessionID: nueva?.id ?? input.sessionID, text: texto, delivery: "queue", metadata: { repartoInicio: true } });
+    const sesionRegidor = nueva?.id ?? input.sessionID;
+    try {
+      if (!nueva) await ctx.session.switchAgent({ sessionID: input.sessionID, agent: "regidor" });
+      await ctx.session.prompt({ sessionID: sesionRegidor, text: texto, delivery: "queue", metadata: { repartoInicio: true } });
+    } catch (error) {
+      write(db(), "liberar reserva fallida", () => db().query("DELETE FROM sesiones_regidor WHERE sesion = $sesion AND plan = $plan AND hash = $hash")
+        .run({ sesion: sesionRegidor, ...ref }));
+      throw error;
+    }
     if (nueva) await ctx.session.prompt({ sessionID: input.sessionID, text: `[reparto] estreno ${nombre} (${registro.tipo}). Abre en chats «${nueva.title}» (${nueva.id}) para seguir con el regidor.`, delivery: "queue", metadata: { repartoAviso: true } });
   };
 }

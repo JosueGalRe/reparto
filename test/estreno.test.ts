@@ -183,3 +183,43 @@ test("two simultaneous estreno commands create just one regidor session", async 
     proceso.db = previous;
   }
 });
+
+for (const failure of ["switch", "delivery"] as const) test(`failed ${failure} releases the reservation so retry starts the regidor`, async () => {
+  // Given: an approved plan and an empty session whose first switch or delivery fails.
+  const location = join(dir, `retry-${failure}`);
+  const path = join(location, ".reparto/planes/demo.md");
+  mkdirSync(join(location, ".reparto/planes"), { recursive: true });
+  writeFileSync(path, contenido);
+  const hash = createHash("sha256").update(contenido).digest("hex");
+  ensayado(path, hash, 1);
+  const previous = proceso.db;
+  proceso.db = db;
+  let switches = 0;
+  let prompts = 0;
+  const deliveries: { sessionID: string; metadata?: Record<string, unknown> }[] = [];
+  const ctx = { session: {
+    get: async () => ({ location: { directory: location } }),
+    context: async () => [],
+    switchAgent: async () => { if (++switches === 1 && failure === "switch") throw new Error("switch failed"); },
+    prompt: async (input: { sessionID: string; metadata?: Record<string, unknown> }) => {
+      if (++prompts === 1 && failure === "delivery") throw new Error("delivery failed");
+      deliveries.push(input);
+    },
+  } } as unknown as Plugin.Context;
+  const sessionID = `ses_retry_${failure}`;
+  const command = () => estreno(ctx)({ sessionID, prompt: { text: "/estreno .reparto/planes/demo.md" } });
+  try {
+    // When: the first call fails; Then: the estreno and tasks remain, but the reservation does not.
+    await expect(command()).rejects.toThrow(`${failure} failed`);
+    expect(db.query("SELECT sesion FROM sesiones_regidor WHERE plan = ?").all(path)).toEqual([]);
+    expect(db.query("SELECT hash FROM estrenos WHERE plan = ?").get(path)).toEqual({ hash });
+    expect(leerPendientes(db, clavePlan({ plan: path, hash }))).toHaveLength(2);
+    // When: Bryan retries; Then: this session switches and receives the plan once.
+    await command();
+    expect(switches).toBe(2);
+    expect(db.query("SELECT sesion FROM sesiones_regidor WHERE plan = ?").all(path)).toEqual([{ sesion: sessionID }]);
+    expect(deliveries).toMatchObject([{ sessionID, metadata: { repartoInicio: true } }]);
+  } finally {
+    proceso.db = previous;
+  }
+});
