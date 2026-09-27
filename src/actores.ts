@@ -25,7 +25,7 @@ export interface Validacion {
 
 export const etiqueta = (actor: Actor) => (actor.variant ? `${actor.model}#${actor.variant}` : actor.model)
 
-export function motivoInvalido(actor: Actor, catalog: Catalog): string | undefined {
+function motivoInvalido(actor: Actor, catalog: Catalog): string | undefined {
   const modelo = catalog.get(actor.model)
 
   if (!modelo) {

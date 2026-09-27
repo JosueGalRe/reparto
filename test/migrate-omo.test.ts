@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test'
 
-import { type Catalog, migrarActor, migrarReparto } from '../scripts/migrate-omo.ts'
+import { type Catalog, migrar, migrarActor, migrarReparto } from '../scripts/migrate-omo.ts'
 
 const catalog: Catalog = new Map([
   ['opencode-go/kimi-k3', ['max']],
@@ -52,4 +52,22 @@ test('categoría: models[0] es el titular y el resto hereda su reasoning en OMO'
 
   expect(migrados[0]!.actor).toEqual({ model: 'openai/gpt-6-sol', variant: 'xhigh' })
   expect(migrados[1]!.nota).toContain('"xhigh"')
+})
+
+test('la migración no genera concurrencia del OMO', () => {
+  // Given: una config OMO con concurrencia por proveedor.
+  const entry = { model: 'opencode-go/kimi-k3' }
+  const agents = Object.fromEntries(
+    ['sisyphus', 'explore', 'librarian', 'oracle', 'prometheus', 'momus', 'atlas'].map((name) => [name, entry]),
+  )
+  const categories = Object.fromEntries(
+    ['quick', 'visual-engineering', 'deep-low', 'ultrabrain', 'writing'].map((name) => [name, entry]),
+  )
+  const omo = { '[opencode]': { agents, categories, background_task: { providerConcurrency: { 'opencode-go': 2 } } } }
+
+  // When: se migra al formato de reparto.
+  const migrated = Bun.JSONC.parse(migrar(omo, catalog, 'schema.json'))
+
+  // Then: el resultado no arrastra proveedores sin configuración vigente.
+  expect(migrated).not.toHaveProperty('proveedores')
 })

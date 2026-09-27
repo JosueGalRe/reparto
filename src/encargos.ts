@@ -32,9 +32,9 @@ const permitidas: Record<Estado, readonly Estado[]> = {
 }
 
 /** El mecanismo interno de ensayar solo invoca a sus dos revisores. */
-export const destinos = new Set<string>(['critico', 'oracle'])
+const destinos = new Set<string>(['critico', 'oracle'])
 
-export const PLAZO_ESTANCADO = 30 * 60_000
+const PLAZO_ESTANCADO = 30 * 60_000
 const TOPE_RESULTADO = 4_000
 
 const recortar = (texto: string, tope: number) =>
@@ -120,16 +120,11 @@ interface Entrada {
 const etiquetaRef = (modelo: { providerID: string; id: string; variant?: string } | undefined) =>
   modelo ? etiqueta({ model: `${modelo.providerID}/${modelo.id}`, variant: modelo.variant }) : 'desconocido'
 
-export function textoPermiso(titulo: string, action: string, resources: readonly string[], requestID: string): string {
+function textoPermiso(titulo: string, action: string, resources: readonly string[], requestID: string): string {
   return `[reparto] ${titulo} — espera permiso: ${action} ${resources.join(', ')} (${requestID})\nÁbrela en chats por su título y aprueba o rechaza ahí.`
 }
 
-export function registrarPermiso(request: {
-  id: string
-  sessionID: string
-  action: string
-  resources: readonly string[]
-}): boolean {
+function registrarPermiso(request: { id: string; sessionID: string; action: string; resources: readonly string[] }): boolean {
   return (
     write(
       db(),

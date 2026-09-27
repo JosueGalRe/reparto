@@ -14,7 +14,6 @@ export interface Reparto {
 }
 
 export interface Proveedor {
-  concurrencia?: number
   plazoBaja?: string
 }
 
@@ -29,7 +28,7 @@ export interface Config {
 export const plazoMs = (plazo: string) =>
   Number(plazo.slice(0, -1)) * { m: 60_000, h: 3_600_000, d: 86_400_000 }[plazo.at(-1) as 'm' | 'h' | 'd']
 
-export const defaultPath = join(homedir(), '.config', 'opencode', 'reparto.jsonc')
+const defaultPath = join(homedir(), '.config', 'opencode', 'reparto.jsonc')
 
 export function configPath(options: Readonly<Record<string, unknown>>): string {
   const path = typeof options.config === 'string' ? options.config : defaultPath
@@ -76,7 +75,7 @@ interface JsonSchema {
   pattern?: string
 }
 
-export function validate(value: unknown, node: JsonSchema, path: string): string[] {
+function validate(value: unknown, node: JsonSchema, path: string): string[] {
   const at = path || '(raíz)'
 
   if (node.$ref) {

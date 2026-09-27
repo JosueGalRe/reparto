@@ -174,7 +174,7 @@ export function clasificar(error: { type: string }, crudo: ErrorCrudo | undefine
 // ---------- Suplencias: el cambio de actor dentro del hook `retry` (S8) ----------
 
 /** `provider/model#variant` de un Model.Ref, con `default` cuando V2 no reporta variant. */
-export const claveModelo = (modelo: { providerID: string; id: string; variant?: string }) =>
+const claveModelo = (modelo: { providerID: string; id: string; variant?: string }) =>
   `${modelo.providerID}/${modelo.id}#${modelo.variant ?? 'default'}`
 
 const PLAZO_BAJA = '5h'

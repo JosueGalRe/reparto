@@ -13,7 +13,6 @@ interface Omo {
   '[opencode]': {
     agents: Record<string, OmoReparto>
     categories: Record<string, OmoReparto>
-    background_task?: { providerConcurrency?: Record<string, number> }
   }
 }
 export type Catalog = Map<string, string[]>
@@ -156,7 +155,6 @@ export function migrar(omo: Omo, catalog: Catalog, schema: string): string {
   const papelesOut = Object.entries(papeles).map(
     ([omoName, nombre]) => [nombre, migrarReparto(src.categories[omoName]!, catalog, true), `OMO: ${omoName}`] as const,
   )
-  const concurrencia = Object.entries(src.background_task?.providerConcurrency ?? {})
 
   return [
     `// Generado por scripts/migrate-omo.ts desde omo.jsonc (${new Date().toISOString().slice(0, 10)}).`,
@@ -172,14 +170,6 @@ export function migrar(omo: Omo, catalog: Catalog, schema: string): string {
     `  "papeles": {`,
     papelesOut
       .map(([nombre, modelo, origen], indice) => bloque(nombre, modelo, indice === papelesOut.length - 1, origen))
-      .join('\n'),
-    `  },`,
-    `  "proveedores": {`,
-    concurrencia
-      .map(
-        ([id, numero], indice) =>
-          `    ${JSON.stringify(id)}: { "concurrencia": ${numero} }${indice < concurrencia.length - 1 ? ',' : ''}`,
-      )
       .join('\n'),
     `  }`,
     `}`,

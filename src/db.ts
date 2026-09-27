@@ -6,7 +6,7 @@ import { Database } from 'bun:sqlite'
 import { dataDir, log } from './log.ts'
 import { proceso } from './process.ts'
 
-export const defaultDbPath = join(dataDir, 'reparto.db')
+const defaultDbPath = join(dataDir, 'reparto.db')
 
 // La sesión hija sigue siendo la fuente de verdad de la ejecución (ADR 0010): acá va solo lo que V2 no guarda.
 const schema = `

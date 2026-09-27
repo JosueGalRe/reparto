@@ -38,16 +38,6 @@ export function planDeSesion(database: Database, sesion: string): ReferenciaPlan
     .get({ sesion }) as ReferenciaPlan | undefined
 }
 
-export function ligarSesion(database: Database, sesion: string, ref: ReferenciaPlan) {
-  const result = write(database, 'ligar sesión al estreno', () =>
-    database.query('INSERT INTO sesiones_regidor (sesion, plan, hash) VALUES ($sesion, $plan, $hash)').run({ sesion, ...ref }),
-  )
-
-  if (!result) {
-    throw new Error('estreno: no se pudo ligar la sesión al plan')
-  }
-}
-
 export function tareas(contenido: string): Item[] {
   const titulos = [...contenido.matchAll(/^### (T\d+):\s*(.+)$/gm)]
 

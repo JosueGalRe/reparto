@@ -41,7 +41,11 @@
         "type": "object",
         "additionalProperties": false,
         "properties": {
-          "concurrencia": { "type": "integer", "minimum": 1, "description": "Encargos a la vez por proceso. Default 3." },
+          "concurrencia": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Obsoleta: se acepta por compatibilidad, pero reparto la ignora."
+          },
           "plazoBaja": {
             "type": "string",
             "pattern": "^\\d+[mhd]$",

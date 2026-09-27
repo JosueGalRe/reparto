@@ -7,7 +7,7 @@ import { afterAll, expect, test } from 'bun:test'
 
 import { continuacion, decidirContinuacion, decisionGuardada } from '../src/continuacion.ts'
 import { openDb } from '../src/db.ts'
-import { clavePlan, estreno, evaluarEstreno, ligarSesion, planDeSesion, registrarEstreno, tareas } from '../src/estreno.ts'
+import { clavePlan, estreno, evaluarEstreno, planDeSesion, registrarEstreno, tareas } from '../src/estreno.ts'
 import { escribirPendientes, leerPendientes } from '../src/pendientes.ts'
 import { proceso } from '../src/process.ts'
 
@@ -49,7 +49,17 @@ test('estreno accepts two approvals on current hash, seeds tasks and resumes ins
   expect(first.estreno.tipo).toBe('normal')
   expect(resumed.items.map((item) => item.estado)).toEqual(['hecho', 'pendiente'])
   expect(tareas(contenido).map((item) => item.texto)).toEqual(['T1: first', 'T2: second'])
-  ligarSesion(db, 'ses_regidor_demo', ref)
+})
+
+test('planDeSesion encuentra la sesión ligada por registrarEstreno', () => {
+  // Given: un plan aprobado con tareas pendientes.
+  const ref = { plan: `${plan}-sesion`, hash: 'A' }
+
+  ensayado(ref.plan, ref.hash, 1)
+  // When: el estreno reserva la sesión del regidor.
+  registrarEstreno(db, ref, contenido, false, 'ses_regidor_demo')
+
+  // Then: la sesión apunta al plan estrenado.
   expect(planDeSesion(db, 'ses_regidor_demo')).toEqual(ref)
 })
 

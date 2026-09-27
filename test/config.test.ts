@@ -28,6 +28,7 @@ test('acepta JSONC con comentarios y comas finales', async () => {
 
   expect(result).toHaveProperty('config.agentes.director.titular.variant', 'high')
   expect(result).toHaveProperty('config.papeles.protagonista.titular.variant', 'max')
+  expect(result).toHaveProperty('config.proveedores.claude-code.concurrencia', 2)
 })
 
 test('agentes acepta cualquier nombre (nativos o futuros); papeles no', async () => {
