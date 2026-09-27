@@ -9,7 +9,9 @@ export interface Item {
 }
 
 export function leerPendientes(db: Database, clave: string): Item[] {
-  const fila = db.query('SELECT items FROM pendientes WHERE clave = $clave').get({ clave }) as { items: string } | null
+  const fila = db
+    .query<{ items: string }, { clave: string }>('SELECT items FROM pendientes WHERE clave = $clave')
+    .get({ clave })
 
   return fila ? (JSON.parse(fila.items) as Item[]) : []
 }

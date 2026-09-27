@@ -12,7 +12,6 @@ import type { Plugin } from '@opencode/plugin'
 import type { Database } from 'bun:sqlite'
 
 interface Ensayo {
-  readonly ronda: number
   readonly hash: string
   readonly revisor: string
   readonly veredicto: string
@@ -32,10 +31,15 @@ export interface ReferenciaPlan {
 export const clavePlan = ({ plan, hash }: ReferenciaPlan) => `${plan}\u0000${hash}`
 
 export function planDeSesion(database: Database, sesion: string): ReferenciaPlan | undefined {
-  return database
-    .query(`SELECT s.plan, s.hash FROM sesiones_regidor s JOIN estrenos e ON e.plan = s.plan AND e.hash = s.hash
+  return (
+    database
+      .query<
+        ReferenciaPlan,
+        { sesion: string }
+      >(`SELECT s.plan, s.hash FROM sesiones_regidor s JOIN estrenos e ON e.plan = s.plan AND e.hash = s.hash
     WHERE s.sesion = $sesion`)
-    .get({ sesion }) as ReferenciaPlan | undefined
+      .get({ sesion }) ?? undefined
+  )
 }
 
 export function tareas(contenido: string): Item[] {
@@ -55,7 +59,7 @@ export function evaluarEstreno(
   hash: string,
   conObjeciones: boolean,
 ): { tipo: Estreno['tipo']; abiertas: EntradaActa[] } {
-  const estrenado = database.query('SELECT * FROM estrenos WHERE plan = $plan').get({ plan }) as Estreno | null
+  const estrenado = database.query<Estreno, { plan: string }>('SELECT * FROM estrenos WHERE plan = $plan').get({ plan })
 
   if (estrenado) {
     if (estrenado.hash !== hash) {
@@ -65,17 +69,19 @@ export function evaluarEstreno(
     return { tipo: estrenado.tipo, abiertas: JSON.parse(estrenado.objeciones) as EntradaActa[] }
   }
 
-  const ultima = database.query('SELECT max(ronda) AS ronda FROM ensayos WHERE plan = $plan').get({ plan }) as {
-    ronda: number | null
-  }
+  const ultima = database
+    .query<{ ronda: number | null }, { plan: string }>('SELECT max(ronda) AS ronda FROM ensayos WHERE plan = $plan')
+    .get({ plan })
 
-  if (ultima.ronda === null) {
+  if (!ultima || ultima.ronda === null) {
     throw new Error('estreno: el plan no tiene ensayo general')
   }
 
   const filas = database
-    .query('SELECT ronda, hash, revisor, veredicto FROM ensayos WHERE plan = $plan AND ronda = $ronda ORDER BY revisor')
-    .all({ plan, ronda: ultima.ronda }) as Ensayo[]
+    .query<Ensayo, { plan: string; ronda: number }>(
+      'SELECT ronda, hash, revisor, veredicto FROM ensayos WHERE plan = $plan AND ronda = $ronda ORDER BY revisor',
+    )
+    .all({ plan, ronda: ultima.ronda })
 
   if (filas.some((fila) => fila.hash !== hash)) {
     throw new Error('estreno: el archivo cambió después de la versión ensayada; ensaya el hash actual')
@@ -89,7 +95,7 @@ export function evaluarEstreno(
     throw new Error('estreno: ronda incompleta; faltan los dos revisores')
   }
 
-  const acta = database.query('SELECT * FROM acta WHERE plan = $plan ORDER BY id').all({ plan }) as EntradaActa[]
+  const acta = database.query<EntradaActa, { plan: string }>('SELECT * FROM acta WHERE plan = $plan ORDER BY id').all({ plan })
   const veredictos = filas.map((fila) => JSON.parse(fila.veredicto) as Veredicto)
 
   if (
@@ -150,10 +156,13 @@ export function registrarEstreno(
     const items = leerPendientes(database, clave)
     const activa =
       sesion && items.some((item) => item.estado !== 'hecho')
-        ? (database
-            .query(`SELECT s.sesion FROM sesiones_regidor s JOIN estrenos e ON e.plan = s.plan AND e.hash = s.hash
+        ? database
+            .query<
+              { sesion: string },
+              { plan: string; hash: string }
+            >(`SELECT s.sesion FROM sesiones_regidor s JOIN estrenos e ON e.plan = s.plan AND e.hash = s.hash
         WHERE s.plan = $plan AND s.hash = $hash ORDER BY s.rowid DESC LIMIT 1`)
-            .get({ plan, hash }) as { sesion: string } | null)
+            .get({ plan, hash })
         : null
 
     if (sesion && !activa) {
@@ -162,8 +171,14 @@ export function registrarEstreno(
         .run({ sesion, plan, hash })
     }
 
+    const registro = database.query<Estreno, { plan: string }>('SELECT * FROM estrenos WHERE plan = $plan').get({ plan })
+
+    if (!registro) {
+      throw new Error(`estreno: falta registro de ${plan} después de insertarlo`)
+    }
+
     return {
-      estreno: database.query('SELECT * FROM estrenos WHERE plan = $plan').get({ plan }) as Estreno,
+      estreno: registro,
       items,
       ...(sesion ? { activa: activa?.sesion ?? sesion, nueva: !activa } : {}),
     }
@@ -217,11 +232,11 @@ export function estreno(ctx: Plugin.Context) {
 
       for (let intento = 0; activa?.startsWith('reserva:') && intento < 50; intento++) {
         await Bun.sleep(100)
-        activa = (
-          db()
-            .query('SELECT sesion FROM sesiones_regidor WHERE plan = $plan AND hash = $hash ORDER BY rowid DESC LIMIT 1')
-            .get(ref) as { sesion: string } | null
-        )?.sesion
+        activa = db()
+          .query<{ sesion: string }, { plan: string; hash: string }>(
+            'SELECT sesion FROM sesiones_regidor WHERE plan = $plan AND hash = $hash ORDER BY rowid DESC LIMIT 1',
+          )
+          .get(ref)?.sesion
       }
 
       if (!activa || activa.startsWith('reserva:')) {

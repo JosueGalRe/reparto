@@ -29,7 +29,9 @@ export const registrarBaja = (db: Database, baja: Baja) =>
   )
 
 export const bajasVigentes = (db: Database, ahora = Date.now()): Baja[] =>
-  db.query('SELECT tipo, id, motivo, hasta FROM bajas WHERE hasta > $ahora ORDER BY hasta').all({ ahora }) as Baja[]
+  db
+    .query<Baja, { ahora: number }>('SELECT tipo, id, motivo, hasta FROM bajas WHERE hasta > $ahora ORDER BY hasta')
+    .all({ ahora })
 
 export const deBaja = (bajas: readonly Baja[]) => (actor: Actor) =>
   bajas.some(

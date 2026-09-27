@@ -49,7 +49,7 @@ export function tituloEncargo(agente: string, prompt: string): string {
 
 // ---------- Filas ----------
 
-export const leer = (id: number) => db().query('SELECT * FROM encargos WHERE id = $id').get({ id }) as Encargo | null
+export const leer = (id: number) => db().query<Encargo, { id: number }>('SELECT * FROM encargos WHERE id = $id').get({ id })
 
 type Cambios = Partial<Pick<Encargo, 'desde' | 'cerrado' | 'mensaje_final' | 'error'>>
 
@@ -403,8 +403,10 @@ export function encargos(ctx: Ctx) {
     }
 
     const encargo = db()
-      .query("SELECT * FROM encargos WHERE hija = $hija AND estado IN ('en_cola', 'corriendo', 'estancado')")
-      .get({ hija }) as Encargo | null
+      .query<Encargo, { hija: string }>(
+        "SELECT * FROM encargos WHERE hija = $hija AND estado IN ('en_cola', 'corriendo', 'estancado')",
+      )
+      .get({ hija })
 
     if (!encargo) {
       throw new Error(`interrumpir: ${hija} no tiene un encargo abierto`)
@@ -448,8 +450,8 @@ export function encargos(ctx: Ctx) {
     }
 
     const encargo = db()
-      .query('SELECT * FROM encargos WHERE hija = $hija ORDER BY id DESC LIMIT 1')
-      .get({ hija: entrada.id }) as Encargo | null
+      .query<Encargo, { hija: string }>('SELECT * FROM encargos WHERE hija = $hija ORDER BY id DESC LIMIT 1')
+      .get({ hija: entrada.id })
     const sesion = encargo ? undefined : await ctx.session.get({ sessionID: entrada.id }).catch(() => undefined)
 
     if (!encargo && !sesion?.parentID) {
@@ -458,21 +460,24 @@ export function encargos(ctx: Ctx) {
 
     const completo = entrada.detalle === 'completo'
     const llamadas = db()
-      .query('SELECT tool, argumentos, resultado, estado FROM bitacora WHERE hija = $hija ORDER BY hora')
-      .all({ hija: entrada.id }) as {
-      tool: string
-      argumentos: string
-      resultado: string | null
-      estado: string
-    }[]
+      .query<
+        {
+          tool: string
+          argumentos: string
+          resultado: string | null
+          estado: string
+        },
+        { hija: string }
+      >('SELECT tool, argumentos, resultado, estado FROM bitacora WHERE hija = $hija ORDER BY hora')
+      .all({ hija: entrada.id })
     const lineas = llamadas.map((llamada) => {
       const base = `- ${llamada.tool} ${argumentoClave(llamada.argumentos)}${llamada.estado === 'error' ? ' [error]' : ''}`
 
       return completo && llamada.resultado ? `${base}\n  → ${llamada.resultado.replaceAll('\n', '\n    ')}` : base
     })
-    const final = db().query('SELECT texto FROM mensajes_hijas WHERE hija = $hija').get({ hija: entrada.id }) as {
-      texto: string
-    } | null
+    const final = db()
+      .query<{ texto: string }, { hija: string }>('SELECT texto FROM mensajes_hijas WHERE hija = $hija')
+      .get({ hija: entrada.id })
 
     return {
       content: [

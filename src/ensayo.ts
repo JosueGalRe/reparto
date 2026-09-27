@@ -124,7 +124,9 @@ export function actualizarActa(
   ronda: number,
   revisiones: readonly Veredicto[],
 ): EntradaActa[] {
-  const previo = database.query('SELECT * FROM acta WHERE plan = $plan ORDER BY id').all({ plan }) as EntradaActa[]
+  const previo = database
+    .query<EntradaActa, { plan: string }>('SELECT * FROM acta WHERE plan = $plan ORDER BY id')
+    .all({ plan })
   const alta = database.query(`INSERT INTO acta (plan, id, objecion, causa, condicion_cierre, ronda_entrada, estado)
     VALUES ($plan, $id, $objecion, $causa, $condicion_cierre, $ronda_entrada, 'abierto')`)
   let id = (previo.at(-1)?.id ?? 0) + 1
@@ -155,7 +157,7 @@ export function actualizarActa(
     }
   }
 
-  return database.query('SELECT * FROM acta WHERE plan = $plan ORDER BY id').all({ plan }) as EntradaActa[]
+  return database.query<EntradaActa, { plan: string }>('SELECT * FROM acta WHERE plan = $plan ORDER BY id').all({ plan })
 }
 
 export function cerrado(revisiones: readonly Veredicto[], acta: readonly EntradaActa[], hashes: readonly string[]): boolean {
@@ -261,15 +263,15 @@ export function ensayo(
     const nombre = relative(padre.location.directory, ruta)
     const database = db()
     const anterior = database
-      .query('SELECT * FROM ensayos WHERE plan = $plan ORDER BY ronda DESC LIMIT 1')
-      .get({ plan }) as Ensayo | null
+      .query<Ensayo, { plan: string }>('SELECT * FROM ensayos WHERE plan = $plan ORDER BY ronda DESC LIMIT 1')
+      .get({ plan })
 
     if (anterior?.veredicto !== 'pendiente') {
       if (anterior) {
         const filas = database
-          .query('SELECT * FROM ensayos WHERE plan = $plan AND ronda = $ronda')
-          .all({ plan, ronda: anterior.ronda }) as Ensayo[]
-        const acta = database.query('SELECT * FROM acta WHERE plan = $plan').all({ plan }) as EntradaActa[]
+          .query<Ensayo, { plan: string; ronda: number }>('SELECT * FROM ensayos WHERE plan = $plan AND ronda = $ronda')
+          .all({ plan, ronda: anterior.ronda })
+        const acta = database.query<EntradaActa, { plan: string }>('SELECT * FROM acta WHERE plan = $plan').all({ plan })
 
         if (
           filas.length === 2 &&
@@ -295,9 +297,11 @@ export function ensayo(
     const ronda = anterior?.veredicto === 'pendiente' ? anterior.ronda : (anterior?.ronda ?? 0) + 1
     const version =
       anterior?.veredicto === 'pendiente'
-        ? (database
-            .query('SELECT contenido FROM versiones WHERE plan = $plan AND hash = $hash')
-            .get({ plan, hash: anterior.hash }) as { contenido: string } | null)
+        ? database
+            .query<{ contenido: string }, { plan: string; hash: string }>(
+              'SELECT contenido FROM versiones WHERE plan = $plan AND hash = $hash',
+            )
+            .get({ plan, hash: anterior.hash })
         : { contenido }
 
     if (!version) {
@@ -318,14 +322,20 @@ export function ensayo(
     }
 
     const prevHash = database
-      .query('SELECT hash FROM ensayos WHERE plan = $plan AND ronda = $ronda LIMIT 1')
-      .get({ plan, ronda: ronda - 1 }) as { hash: string } | null
+      .query<{ hash: string }, { plan: string; ronda: number }>(
+        'SELECT hash FROM ensayos WHERE plan = $plan AND ronda = $ronda LIMIT 1',
+      )
+      .get({ plan, ronda: ronda - 1 })
     const previo =
       prevHash &&
-      (database
-        .query('SELECT contenido FROM versiones WHERE plan = $plan AND hash = $hash')
-        .get({ plan, hash: prevHash.hash }) as { contenido: string } | null)
-    const acta = database.query('SELECT * FROM acta WHERE plan = $plan ORDER BY id').all({ plan }) as EntradaActa[]
+      database
+        .query<{ contenido: string }, { plan: string; hash: string }>(
+          'SELECT contenido FROM versiones WHERE plan = $plan AND hash = $hash',
+        )
+        .get({ plan, hash: prevHash.hash })
+    const acta = database
+      .query<EntradaActa, { plan: string }>('SELECT * FROM acta WHERE plan = $plan ORDER BY id')
+      .all({ plan })
 
     if (
       !write(database, 'iniciar ensayo', () => {
@@ -358,8 +368,8 @@ export function ensayo(
       (['critico', 'oracle'] as const).map(async (revisor) => {
         const hija = await encargos.delegar({ a: revisor, prompt }, tool, actores[revisor])
         const fila = database
-          .query('SELECT * FROM encargos WHERE hija = $hija ORDER BY id DESC LIMIT 1')
-          .get({ hija }) as Encargo | null
+          .query<Encargo, { hija: string }>('SELECT * FROM encargos WHERE hija = $hija ORDER BY id DESC LIMIT 1')
+          .get({ hija })
 
         if (fila?.estado !== 'terminado' || !fila.mensaje_final) {
           throw new Error(`${revisor}: encargo no terminó (${fila?.estado})`)

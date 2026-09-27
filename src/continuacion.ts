@@ -58,8 +58,15 @@ export function decisionGuardada(
 
     database.query('INSERT OR IGNORE INTO continuaciones (sesion, clave) VALUES ($sesion, $clave)').run({ sesion, clave })
     const estado = database
-      .query('SELECT firma, intentos, interrumpido, detenido FROM continuaciones WHERE sesion = $sesion')
-      .get({ sesion }) as Estado
+      .query<Estado, { sesion: string }>(
+        'SELECT firma, intentos, interrumpido, detenido FROM continuaciones WHERE sesion = $sesion',
+      )
+      .get({ sesion })
+
+    if (!estado) {
+      throw new Error(`continuación del regidor: falta estado de ${sesion} después de insertarlo`)
+    }
+
     const items = leerPendientes(database, clave)
     const decision = decidirContinuacion(items, background, estado)
 

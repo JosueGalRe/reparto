@@ -3,11 +3,12 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { afterAll, expect, test } from 'bun:test'
+import { afterAll, expect, spyOn, test } from 'bun:test'
 
 import { continuacion, decidirContinuacion, decisionGuardada } from '../src/continuacion.ts'
 import { openDb } from '../src/db.ts'
 import { clavePlan, estreno, evaluarEstreno, planDeSesion, registrarEstreno, tareas } from '../src/estreno.ts'
+import { log } from '../src/log.ts'
 import { escribirPendientes, leerPendientes } from '../src/pendientes.ts'
 import { proceso } from '../src/process.ts'
 
@@ -61,6 +62,66 @@ test('planDeSesion encuentra la sesión ligada por registrarEstreno', () => {
 
   // Then: la sesión apunta al plan estrenado.
   expect(planDeSesion(db, 'ses_regidor_demo')).toEqual(ref)
+})
+
+test('planDeSesion devuelve undefined cuando no hay sesión ligada', () => {
+  // Given: una sesión sin estreno.
+  // When: se consulta su plan; Then: conserva el contrato de ausencia.
+  expect(planDeSesion(db, 'ses_sin_estreno')).toBeUndefined()
+})
+
+test('continuación falla si falta la fila insertada antes de decidir', () => {
+  // Given: SQLite elimina la fila justo después del INSERT, antes del SELECT.
+  const database = openDb(join(dir, 'continuacion-sin-fila.db'))
+  const error = spyOn(log, 'error').mockImplementation(() => {})
+
+  try {
+    database.run(`CREATE TRIGGER borrar_continuacion AFTER INSERT ON continuaciones BEGIN
+      DELETE FROM continuaciones WHERE sesion = NEW.sesion;
+    END`)
+
+    // When: se intenta decidir; Then: no se emite una continuación con estado inexistente.
+    expect(decisionGuardada(database, 'ses_sin_fila', { plan: 'plan', hash: 'A' }, 'evento-sin-fila')).toBeUndefined()
+    expect(error).toHaveBeenCalledWith(
+      'escritura en SQLite falló',
+      expect.objectContaining({
+        error: expect.stringContaining('falta estado de ses_sin_fila después de insertarlo'),
+      }),
+    )
+    expect(database.query('SELECT * FROM continuacion_eventos').all()).toEqual([])
+  } finally {
+    error.mockRestore()
+    database.close()
+  }
+})
+
+test('estreno falla si falta la fila insertada antes de devolverla', () => {
+  // Given: un ensayo aprobado y un trigger que elimina el estreno tras insertarlo.
+  const database = openDb(join(dir, 'estreno-sin-fila.db'))
+
+  try {
+    for (const revisor of ['critico', 'oracle']) {
+      database
+        .query(
+          "INSERT INTO ensayos (plan, ronda, hash, revisor, actor, veredicto) VALUES ('plan-sin-fila', 1, 'A', ?, 'p/m', ?)",
+        )
+        .run(revisor, verdict)
+    }
+
+    database.run(`CREATE TRIGGER borrar_estreno AFTER INSERT ON estrenos BEGIN
+      DELETE FROM estrenos WHERE plan = NEW.plan;
+    END`)
+
+    // When: se estrena; Then: la transacción se revierte sin devolver un registro nulo.
+    expect(() => registrarEstreno(database, { plan: 'plan-sin-fila', hash: 'A' }, contenido, false)).toThrow(
+      /no se pudo guardar en SQLite/,
+    )
+    expect(
+      database.query('SELECT * FROM pendientes WHERE clave = ?').all(clavePlan({ plan: 'plan-sin-fila', hash: 'A' })),
+    ).toEqual([])
+  } finally {
+    database.close()
+  }
 })
 
 test('estreno refuses an edited current file even after version A was approved', () => {
