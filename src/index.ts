@@ -4,9 +4,11 @@ import { conShellDeLectura, motivoNegado, registrar, ruteo } from "./agentes.ts"
 import { bajasVigentes, deBaja, suplencias } from "./bajas.ts";
 import { readCatalog } from "./catalog.ts";
 import { configPath, loadConfig } from "./config.ts";
+import { continuacion } from "./continuacion.ts";
 import { db } from "./db.ts";
 import { destinos, encargos } from "./encargos.ts";
 import { ensayo } from "./ensayo.ts";
+import { clavePlan, estreno, planDeSesion } from "./estreno.ts";
 import { log } from "./log.ts";
 import { escribirPendientes, estados, formatear, leerPendientes, parsearItems } from "./pendientes.ts";
 import { proceso } from "./process.ts";
@@ -16,7 +18,7 @@ const modulo = crypto.randomUUID().slice(0, 8);
 const debug = !!process.env.REPARTO_DEBUG;
 
 /** Primarios cuyo actor impone reparto en el hook `prompt`: el servidor no aplica `agent.model` (S10). */
-const primarios = new Set(["director", "dramaturgo", "build"]);
+const primarios = new Set(["director", "dramaturgo", "regidor", "build"]);
 
 export default Plugin.define({
   id: "reparto",
@@ -49,6 +51,8 @@ export default Plugin.define({
       });
 
       await ctx.agent.transform(registrar);
+      await ctx.command.transform((editor) => editor.add({ name: "estreno", description: "Estrena un plan aprobado: /estreno .reparto/planes/<plan>.md [con-objeciones]", execute: estreno(ctx) }));
+      const c = continuacion(ctx);
 
       // Sesiones primarias: el actor resuelto se impone en el primer turno y en el primer turno después de que
       // empiece o termine una baja que lo cambie. El resto del tiempo se respeta el modelo de la sesión, así que un
@@ -78,10 +82,11 @@ export default Plugin.define({
           log.error("hook prompt falló", { sessionID: input.sessionID, error: String(error) });
         }
       });
+      await ctx.session.hook("prompt", (input) => c.prompt(input));
 
       await ctx.session.hook("context", (input) => {
         if (debug) log.info("debug: tools de la request", { sessionID: input.sessionID, agent: input.agent, tools: Object.keys(input.tools).sort() });
-        if (input.agent === "director") input.system.push({ type: "text", text: ruteo(proceso.validacion) });
+        if (input.agent === "director" || input.agent === "regidor") input.system.push({ type: "text", text: ruteo(proceso.validacion) });
       });
 
       // Solo corre cuando las reglas ya dieron allow (S7): sirve para negar, no para permitir.
@@ -212,8 +217,15 @@ export default Plugin.define({
           options: { codemode: false },
           execute: async (input, tool) => {
             const items = parsearItems(input);
-            if (items && !escribirPendientes(db(), tool.sessionID, items)) throw new Error("pendientes: no se pudo guardar (SQLite); ver el log de reparto");
-            return { content: formatear(items ?? leerPendientes(db(), tool.sessionID)) };
+            const sesion = await ctx.session.get({ sessionID: tool.sessionID });
+            const ref = sesion.agent === "regidor" ? planDeSesion(db(), tool.sessionID) : undefined;
+            const clave = ref ? clavePlan(ref) : tool.sessionID;
+            if (items && ref) {
+              const original = leerPendientes(db(), clave);
+              if (items.length !== original.length || items.some((item, i) => item.texto !== original[i]?.texto)) throw new Error("pendientes: las tareas estrenadas no se pueden agregar, borrar ni renombrar");
+            }
+            if (items && !escribirPendientes(db(), clave, items)) throw new Error("pendientes: no se pudo guardar (SQLite); ver el log de reparto");
+            return { content: formatear(items ?? leerPendientes(db(), clave)) };
           },
         });
       });
@@ -223,7 +235,10 @@ export default Plugin.define({
       const stop = new AbortController();
       void (async () => {
         try {
-          for await (const ev of ctx.event.subscribe({ signal: stop.signal })) e.evento(ev);
+          for await (const ev of ctx.event.subscribe({ signal: stop.signal })) {
+            e.evento(ev);
+            void c.evento(ev);
+          }
         } catch (error) {
           if (!stop.signal.aborted) log.error("suscripción a eventos terminó", { location: ctx.location.directory, error: String(error) });
         }

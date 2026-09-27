@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
-import { motivoNegado, permisos, ruteo } from "../src/agentes.ts";
+import { motivoNegado, permisos, registrar, ruteo } from "../src/agentes.ts";
+import type { AgentEditor } from "@opencode/plugin/promise/agent";
 
 test.each([
   ["rg x > f", "redirección"],
@@ -88,6 +89,24 @@ test("dramaturgo puede ensayar y leer bitacora; critico sigue siendo de solo lec
   for (const nombre of ["ensayar", "bitacora"]) expect(dramaturgo.findLast((r) => r.action === nombre || r.action === "*")?.effect).toBe("allow");
   for (const nombre of ["edit", "write", "patch", "delegar", "ensayar"]) expect(subagenteLectura.findLast((r) => r.action === nombre || r.action === "*")?.effect).toBe("deny");
   expect(subagenteLectura.findLast((r) => r.action === "shell" || r.action === "*")?.effect).toBe("allow");
+});
+
+test("regidor has exactly the director permissions as a primary agent", () => {
+  // Given: a build agent with permissive defaults.
+  const agents = new Map<string, { permissions: { action: string; resource: string; effect: "allow" | "deny" | "ask" }[]; mode?: string }>();
+  const editor = {
+    get: (id: string) => agents.get(id),
+    update: (id: string, fn: (agent: { permissions: { action: string; resource: string; effect: "allow" | "deny" | "ask" }[]; mode?: string }) => void) => {
+      const agent = agents.get(id) ?? { permissions: [] };
+      fn(agent);
+      agents.set(id, agent);
+    },
+    default: () => {},
+  } as unknown as AgentEditor;
+  // When: the plugin registers its agents; Then: the regidor is primary with the same permissions.
+  registrar(editor);
+  expect(agents.get("regidor")?.mode).toBe("primary");
+  expect(agents.get("regidor")?.permissions).toEqual(agents.get("director")?.permissions);
 });
 
 test("ruteo: un papel desactivado no aparece en la tabla, y las exclusiones se listan", () => {

@@ -82,6 +82,26 @@ CREATE TABLE IF NOT EXISTS permisos (
   resources TEXT NOT NULL,
   estado TEXT NOT NULL CHECK (estado IN ('pendiente', 'respondido'))
 );
+CREATE TABLE IF NOT EXISTS estrenos (
+  plan TEXT PRIMARY KEY,
+  hash TEXT NOT NULL,
+  fecha INTEGER NOT NULL,
+  tipo TEXT NOT NULL CHECK (tipo IN ('normal', 'con_objeciones')),
+  objeciones TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS sesiones_regidor (
+  sesion TEXT PRIMARY KEY,
+  plan TEXT NOT NULL,
+  hash TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS continuaciones (
+  sesion TEXT PRIMARY KEY,
+  clave TEXT NOT NULL,
+  firma TEXT,
+  intentos INTEGER NOT NULL DEFAULT 0,
+  interrumpido INTEGER NOT NULL DEFAULT 0,
+  detenido INTEGER NOT NULL DEFAULT 0
+);
 `;
 
 export function openDb(path: string): Database {

@@ -5,7 +5,7 @@ import type { Validacion } from "./actores.ts";
 
 export const papeles = ["rapido", "visual", "protagonista", "estelar", "prosa"] as const;
 /** Agentes con shell de lectura restringido. */
-export const conShellDeLectura = new Set(["director", "dramaturgo"]);
+export const conShellDeLectura = new Set(["director", "dramaturgo", "regidor"]);
 
 const guion = (nombre: string) => readFileSync(new URL(`../guiones/${nombre}.md`, import.meta.url), "utf8").trim();
 
@@ -72,6 +72,7 @@ const descripciones: Record<string, string> = {
   archivista: "Finds documentation and code outside the repository. Read-only.",
   oracle: "Read-only consultant for hard decisions: architecture, trade-offs, stubborn bugs.",
   critico: "Read-only reviewer of plans in the ensayo general.",
+  regidor: "Executes an estrenado plan through delegation and verifies each task without editing.",
   rapido: "Papel for mechanical, bounded changes with no design decision.",
   visual: "Papel for changes whose result a person sees.",
   protagonista: "Default papel for implementation that needs understanding the code first.",
@@ -93,6 +94,7 @@ export function registrar(editor: AgentEditor) {
     });
 
   definir("director", "primary", `${guion("director")}\n\n${seccionShell}`, reglas.director);
+  definir("regidor", "primary", `${guion("regidor")}\n\n${seccionShell}`, reglas.director);
   definir("dramaturgo", "primary", `${guion("dramaturgo")}\n\n${seccionShell}`, reglas.dramaturgo);
   for (const id of ["utilero", "archivista", "oracle", "critico"]) definir(id, "subagent", guion(id), reglas.subagenteLectura);
   // Los papeles no se invocan por nombre (no son agentes): se ocultan del `@`.
