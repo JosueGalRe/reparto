@@ -75,6 +75,13 @@ CREATE TABLE IF NOT EXISTS acta (
   estado TEXT NOT NULL CHECK (estado IN ('abierto', 'cerrado')),
   PRIMARY KEY (plan, id)
 );
+CREATE TABLE IF NOT EXISTS permisos (
+  request_id TEXT PRIMARY KEY,
+  hija TEXT NOT NULL,
+  action TEXT NOT NULL,
+  resources TEXT NOT NULL,
+  estado TEXT NOT NULL CHECK (estado IN ('pendiente', 'respondido'))
+);
 `;
 
 export function openDb(path: string): Database {

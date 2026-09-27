@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDb } from "../src/db.ts";
-import { argumentoClave, leer, posterior, puedeDelegar, textoAviso, tituloEncargo, transicion, vivo, yo } from "../src/encargos.ts";
+import { argumentoClave, encargos, leer, permisoPendiente, posterior, puedeDelegar, registrarPermiso, textoAviso, textoPermiso, tituloEncargo, transicion, vivo, yo } from "../src/encargos.ts";
 import { proceso } from "../src/process.ts";
 
 const dir = mkdtempSync(join(tmpdir(), "reparto-encargos-"));
@@ -92,4 +92,63 @@ test("aviso recorta el resultado largo", () => {
   const texto = textoAviso(e, "openai/x", "rapido · Responder OK");
   expect(texto).toContain(`${"x".repeat(1_500)}\n[… recortado, 500 caracteres más]`);
   expect(texto).not.toContain("x".repeat(1_501));
+});
+
+test("aviso de permiso identifica la solicitud y dirige a la hija en chats", () => {
+  // Given: un permiso de lectura externa de una hija titulada.
+  const title = "utilero · Leer secreto";
+  // When: se construye el aviso visible.
+  const text = textoPermiso(title, "external_directory", ["/tmp/reparto-outside/*"], "per_1");
+  // Then: contiene los identificadores y la acción humana, sin sugerir aprobación por el director.
+  expect(text).toContain(`[reparto] ${title} — espera permiso: external_directory /tmp/reparto-outside/* (per_1)`);
+  expect(text).toContain("Ábrela en chats por su título y aprueba o rechaza ahí.");
+});
+
+test("un requestID duplicado solo gana el INSERT una vez", () => {
+  // Given: la primera instancia registra un permiso de un encargo.
+  const hija = leer(crear("corriendo"))!.hija;
+  const request = { id: `per_${crypto.randomUUID()}`, sessionID: hija, action: "external_directory", resources: ["/tmp/outside/*"] };
+  expect(registrarPermiso(request)).toBe(true);
+  // When: otra instancia procesa el mismo evento.
+  const second = registrarPermiso(request);
+  // Then: no se vuelve a notificar.
+  expect(second).toBe(false);
+});
+
+test("permission.asked actualiza actividad y evita estancado mientras espera", async () => {
+  // Given: un encargo abierto con actividad vieja y una notificación observable.
+  const e = leer(crear("corriendo"))!;
+  proceso.abiertos = new Map([[e.hija, { id: e.id, actividad: 1 }]]);
+  let notices = 0;
+  let notified: () => void = () => {};
+  const notice = new Promise<void>((resolve) => { notified = resolve; });
+  const ctx = { session: { get: async () => ({ title: "utilero · Leer secreto" }), prompt: async () => { notices++; notified(); } } };
+  const job = encargos(ctx as never, {} as never);
+  // When: llega el evento de V2.
+  const asked = { type: "permission.asked", data: { id: `per_${crypto.randomUUID()}`, sessionID: e.hija, action: "external_directory", resources: ["/tmp/outside/*"] } };
+  job.evento(asked);
+  job.evento(asked);
+  await notice;
+  // Then: se registró la espera y el vigilante no marca estancado ni con actividad antigua.
+  expect(notices).toBe(1);
+  expect(proceso.abiertos.get(e.hija)?.actividad).toBeGreaterThan(1);
+  expect(permisoPendiente(e.hija)).toBe(true);
+  proceso.abiertos.get(e.hija)!.actividad = 1;
+  await job.vigilar();
+  expect(leer(e.id)?.estado).toBe("corriendo");
+  proceso.abiertos.delete(e.hija);
+});
+
+test("permission.replied actualiza actividad y cierra la espera", () => {
+  // Given: un permiso pendiente en un encargo abierto.
+  const e = leer(crear("corriendo"))!;
+  const requestID = `per_${crypto.randomUUID()}`;
+  registrarPermiso({ id: requestID, sessionID: e.hija, action: "read", resources: ["/tmp/outside/*"] });
+  proceso.abiertos = new Map([[e.hija, { id: e.id, actividad: 1 }]]);
+  // When: V2 informa la respuesta dada en la hija.
+  encargos({} as never, {} as never).evento({ type: "permission.replied", data: { sessionID: e.hija, requestID, reply: "once" } });
+  // Then: se libera la espera y queda registrada actividad reciente.
+  expect(permisoPendiente(e.hija)).toBe(false);
+  expect(proceso.abiertos.get(e.hija)?.actividad).toBeGreaterThan(1);
+  proceso.abiertos.delete(e.hija);
 });
