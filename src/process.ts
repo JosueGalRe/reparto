@@ -24,8 +24,8 @@ export interface Proceso {
 
 // En 2.0.18 cada location importa su propia copia del módulo, pero todas comparten globalThis (sondas.md, S15).
 // ponytail: el singleton sobrevive a un reload del módulo, y si guarda funciones mezcla código viejo con nuevo.
-// En producción no pasa: el plugin no cambia sin reiniciar el servidor. En desarrollo, reiniciar el servidor y no
-// confiar en el reload.
+// El estado sobrevive a hot reloads. El servidor diario carga el worktree estable, que solo cambia al publicar;
+// después de publicar, reiniciar el servidor si algo se comporta raro.
 const key = Symbol.for("reparto.proceso");
 const global = globalThis as { [key]?: Proceso };
 export const proceso: Proceso = (global[key] ??= { firma: "" });
