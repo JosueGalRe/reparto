@@ -246,8 +246,16 @@ test('one permission reply leaves the other pending for the stale watcher', asyn
   hijasNativas().set(hija, vigilancia)
 
   // When: one of two requests is answered; Then: no stale notice is sent.
-  await job.evento({ type: 'permission.asked', created: 2, data: { sessionID: hija, id: 'per_a' } })
-  await job.evento({ type: 'permission.asked', created: 3, data: { sessionID: hija, id: 'per_b' } })
+  await job.evento({
+    type: 'permission.asked',
+    created: 2,
+    data: { sessionID: hija, id: 'per_a', action: 'read', resources: [] },
+  })
+  await job.evento({
+    type: 'permission.asked',
+    created: 3,
+    data: { sessionID: hija, id: 'per_b', action: 'read', resources: [] },
+  })
   await job.evento({ type: 'permission.replied', created: 4, data: { sessionID: hija, requestID: 'per_a' } })
   vigilancia.actividad = 1
   await job.vigilar()

@@ -199,6 +199,7 @@ test('el permiso del revisor avisa a su padre una sola vez aunque se repitan eve
   const hija = await esperando.promise
   const evento = {
     type: 'permission.asked' as const,
+    created: Date.now() + 1,
     data: { sessionID: hija, id: 'per_revisor', action: 'read', resources: ['plan.md'] },
   }
 
@@ -206,7 +207,11 @@ test('el permiso del revisor avisa a su padre una sola vez aunque se repitan eve
     // When: el mismo request llega dos veces y vuelve a llegar después de replied.
     await Promise.all([ejecutar.evento(evento), ejecutar.evento(evento)])
     await aviso.promise
-    await ejecutar.evento({ type: 'permission.replied', data: { sessionID: hija, requestID: 'per_revisor' } })
+    await ejecutar.evento({
+      type: 'permission.replied',
+      created: evento.created + 1,
+      data: { sessionID: hija, requestID: 'per_revisor' },
+    })
     await ejecutar.evento(evento)
 
     // Then: hay un único aviso encolado al dueño y un único request persistido.
@@ -247,7 +252,11 @@ test('cierres simultáneos ignoran eventos viejos y leen el veredicto una sola v
 
   try {
     // When: llega el evento viejo, seguido de cierres concurrentes en ambas instancias y wait.
-    await ejecutar.evento({ type: 'session.execution.succeeded', created: fila?.desde, data: { sessionID: hija } })
+    if (!fila) {
+      throw new Error('encargo sin fecha de inicio')
+    }
+
+    await ejecutar.evento({ type: 'session.execution.succeeded', created: fila.desde, data: { sessionID: hija } })
     expect(lecturas).toBe(0)
     await Promise.all(
       [ejecutar, encargos(ctx)].map((instancia) =>

@@ -2,33 +2,33 @@ import type { Plugin } from '@opencode/plugin'
 import type { PermissionEvaluation } from '@opencode/plugin/promise/permission'
 
 type EventoSdk = ReturnType<Plugin.Context['event']['subscribe']> extends AsyncIterable<infer Evento> ? Evento : never
-type EventoSesion =
-  | {
-      readonly type: 'session.execution.succeeded' | 'session.execution.interrupted'
-      readonly data: { readonly sessionID: string }
-    }
-  | {
-      readonly type: 'session.execution.failed'
-      readonly data: { readonly sessionID: string; readonly error?: { readonly message?: string } }
-    }
-  | {
-      readonly type: 'permission.asked'
-      readonly data: {
-        readonly sessionID: string
-        readonly id: string
-        readonly action?: string
-        readonly resources?: readonly string[]
-      }
-    }
-  | {
-      readonly type: 'permission.replied'
-      readonly data: { readonly sessionID: string; readonly requestID: string }
-    }
+type TipoConsumido =
+  | 'session.execution.succeeded'
+  | 'session.execution.interrupted'
+  | 'session.execution.failed'
+  | 'permission.asked'
+  | 'permission.replied'
 
-export type Evento = { readonly created?: number } & (
-  | EventoSesion
-  | { readonly type: Exclude<EventoSdk['type'], EventoSesion['type']>; readonly data?: object }
-)
+type Exito = Extract<EventoSdk, { type: 'session.execution.succeeded' }>
+type Interrupcion = Extract<EventoSdk, { type: 'session.execution.interrupted' }>
+type Fallo = Extract<EventoSdk, { type: 'session.execution.failed' }>
+type PermisoPedido = Extract<EventoSdk, { type: 'permission.asked' }>
+type PermisoRespondido = Extract<EventoSdk, { type: 'permission.replied' }>
+
+type EventoConsumido =
+  | (Pick<Exito, 'type' | 'created'> & { readonly data: Pick<Exito['data'], 'sessionID'> })
+  | (Pick<Interrupcion, 'type' | 'created'> & { readonly data: Pick<Interrupcion['data'], 'sessionID'> })
+  | (Pick<Fallo, 'type' | 'created'> & { readonly data: Pick<Fallo['data'], 'sessionID' | 'error'> })
+  | (Pick<PermisoPedido, 'type' | 'created'> & {
+      readonly data: Pick<PermisoPedido['data'], 'sessionID' | 'id' | 'action' | 'resources'>
+    })
+  | (Pick<PermisoRespondido, 'type' | 'created'> & {
+      readonly data: Pick<PermisoRespondido['data'], 'sessionID' | 'requestID'>
+    })
+
+export type Evento =
+  | EventoConsumido
+  | { readonly type: Exclude<EventoSdk['type'], TipoConsumido>; readonly created?: number; readonly data?: object }
 
 type Sesion = Awaited<ReturnType<Plugin.Context['session']['get']>>
 

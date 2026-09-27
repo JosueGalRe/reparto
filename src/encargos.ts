@@ -412,14 +412,14 @@ export function encargos(ctx: ContextoEncargos) {
       ev.type === 'session.execution.interrupted'
     ) {
       void cerrar(abierto.id, {
-        created: ev.created ?? Date.now(),
-        error: ev.type === 'session.execution.failed' ? ev.data.error?.message : undefined,
+        created: ev.created,
+        error: ev.type === 'session.execution.failed' ? ev.data.error.message : undefined,
       })
 
       return
     }
 
-    if (ev.type === 'permission.asked' && ev.data.id && ev.data.action && ev.data.resources && sessionID) {
+    if (ev.type === 'permission.asked' && ev.data.id && sessionID) {
       const encargo = leerEncargo(abierto.id)
 
       if (!encargo || !estaAbierto(encargo)) {
