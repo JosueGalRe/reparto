@@ -12,6 +12,7 @@ const guion = (nombre: string) => readFileSync(new URL(`../guiones/${nombre}.md`
 type Rule = { action: string; resource: string; effect: "allow" | "deny" | "ask" };
 const allow = (...actions: string[]): Rule[] => actions.map((action) => ({ action, resource: "*", effect: "allow" }));
 const deny = (...actions: string[]): Rule[] => actions.map((action) => ({ action, resource: "*", effect: "deny" }));
+const mcpActions = ["context7_*", "grep_app_*"] as const;
 
 // `git diff *` lleva el espacio para no dejar pasar `git difftool`. `head *` deja pasar `rg x | head`:
 // V2 exige que cada tramo de `;`, `&&`, `|` y `$( )` esté permitido (S7). V2 oculta las tools negadas pero no
@@ -57,11 +58,13 @@ export const seccionShell = [
 
 export function permisos(base: Rule[]) {
   return {
-    director: soloLectura(base, ["question", "delegar", "interrumpir", "bitacora", "pendientes"]),
-    dramaturgo: dramaturgo(base),
-    subagenteLectura: subagenteSoloLectura(base),
+    director: [...soloLectura(base, ["question", "delegar", "interrumpir", "bitacora", "pendientes"]), ...deny(...mcpActions), ...allow(mcpActions[0])],
+    regidor: [...soloLectura(base, ["question", "delegar", "interrumpir", "bitacora", "pendientes"]), ...deny(...mcpActions)],
+    dramaturgo: [...dramaturgo(base), ...deny(...mcpActions)],
+    subagenteLectura: [...subagenteSoloLectura(base), ...deny(...mcpActions)],
+    archivista: [...subagenteSoloLectura(base), ...deny(...mcpActions), ...allow(...mcpActions)],
     // Papeles y subagentes no delegan: un encargo nunca espera a otro dentro de la misma cola.
-    papel: [...base, ...deny("question", "subagent", "delegar")],
+    papel: [...base, ...deny("question", "subagent", "delegar", ...mcpActions)],
   };
 }
 
@@ -94,13 +97,14 @@ export function registrar(editor: AgentEditor) {
     });
 
   definir("director", "primary", `${guion("director")}\n\n${seccionShell}`, reglas.director);
-  definir("regidor", "primary", `${guion("regidor")}\n\n${seccionShell}`, reglas.director);
+  definir("regidor", "primary", `${guion("regidor")}\n\n${seccionShell}`, reglas.regidor);
   definir("dramaturgo", "primary", `${guion("dramaturgo")}\n\n${seccionShell}`, reglas.dramaturgo);
-  for (const id of ["utilero", "archivista", "oracle", "critico"]) definir(id, "subagent", guion(id), reglas.subagenteLectura);
+  for (const id of ["utilero", "oracle", "critico"]) definir(id, "subagent", guion(id), reglas.subagenteLectura);
+  definir("archivista", "subagent", guion("archivista"), reglas.archivista);
   // Los papeles no se invocan por nombre (no son agentes): se ocultan del `@`.
   for (const id of papeles) definir(id, "subagent", `${guion("papel")}\n\n${guion(id)}`, reglas.papel, true);
   editor.update("build", (agent) => {
-    agent.permissions.push(...deny("subagent"));
+    agent.permissions.push(...deny("subagent", ...mcpActions));
   });
   editor.default("director");
 }

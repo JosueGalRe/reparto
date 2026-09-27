@@ -35,7 +35,9 @@ test("director: la lista permitida va después de negar todo, y las restriccione
   expect(ultima("execute")).toBe("deny");
   expect(ultima("delegar")).toBe("allow");
   expect(ultima("read", "*.env")).toBe("ask");
-  expect(papel.slice(-3).map((r) => [r.action, r.effect])).toEqual([["question", "deny"], ["subagent", "deny"], ["delegar", "deny"]]);
+  for (const action of ["question", "subagent", "delegar", "context7_*", "grep_app_*"]) {
+    expect(papel.findLast((r) => r.action === action)?.effect).toBe("deny");
+  }
 });
 
 test("director: permite solo los comandos de lectura reescritos por rtk", () => {
@@ -91,7 +93,7 @@ test("dramaturgo puede ensayar y leer bitacora; critico sigue siendo de solo lec
   expect(subagenteLectura.findLast((r) => r.action === "shell" || r.action === "*")?.effect).toBe("allow");
 });
 
-test("regidor has exactly the director permissions as a primary agent", () => {
+test("regidor keeps director's read-only rules without inheriting context7", () => {
   // Given: a build agent with permissive defaults.
   const agents = new Map<string, { permissions: { action: string; resource: string; effect: "allow" | "deny" | "ask" }[]; mode?: string }>();
   const editor = {
@@ -103,10 +105,29 @@ test("regidor has exactly the director permissions as a primary agent", () => {
     },
     default: () => {},
   } as unknown as AgentEditor;
-  // When: the plugin registers its agents; Then: the regidor is primary with the same permissions.
+  // When: the plugin registers its agents; Then: regidor keeps the read-only rules but not director's MCP grant.
   registrar(editor);
   expect(agents.get("regidor")?.mode).toBe("primary");
-  expect(agents.get("regidor")?.permissions).toEqual(agents.get("director")?.permissions);
+  expect(agents.get("regidor")?.permissions).toEqual(permisos([]).regidor);
+  expect(agents.get("regidor")?.permissions.findLast((r) => r.action === "context7_*")?.effect).toBe("deny");
+});
+
+test("MCP permissions only expose context7 to director and archivista, grep_app to archivista", () => {
+  // Given: a permissive base and each registered agent's effective rules.
+  const base = [{ action: "*", resource: "*", effect: "allow" as const }];
+  const { director, archivista, subagenteLectura: utilero, papel, regidor, dramaturgo } = permisos(base);
+  // When: V2 resolves the last matching permission action; Then: only the designated agents see each server.
+  for (const [rules, context7, grepApp] of [
+    [director, "allow", "deny"],
+    [archivista, "allow", "allow"],
+    [utilero, "deny", "deny"],
+    [papel, "deny", "deny"],
+    [regidor, "deny", "deny"],
+    [dramaturgo, "deny", "deny"],
+  ] as const) {
+    expect(rules.findLast((rule) => rule.action === "context7_*" || rule.action === "*")?.effect).toBe(context7);
+    expect(rules.findLast((rule) => rule.action === "grep_app_*" || rule.action === "*")?.effect).toBe(grepApp);
+  }
 });
 
 test("ruteo: un papel desactivado no aparece en la tabla, y las exclusiones se listan", () => {
