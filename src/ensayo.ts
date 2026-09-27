@@ -139,7 +139,7 @@ export function ensayo(ctx: { session: { get: (x: { sessionID: string }) => Prom
       return true;
     })) throw new Error("ensayar: no se pudo iniciar ronda");
     const contexto = ronda === 1 ? "Round 1: discovery." : `Closure round ${ronda}. Diff from previous snapshot:\n${diferencia(previo?.contenido ?? "", version.contenido)}\n\nActa:\n${JSON.stringify(acta)}`;
-    const prompt = `${contexto}\n\nPlan snapshot (review this exact text):\n${version.contenido}\n\nReturn ONLY the strict English VEREDICTO format: first line VEREDICTO: APROBADO or VEREDICTO: OBJECIONES; each objection OBJECION: section | concrete defect | cause | closing condition. Explicit Verification is required per task; missing Verification is a blocking objection even if Acceptance is observable. For every acta entry return ACTA: numeric-id | cerrado/abierto. Do not append Difficulty or other formats. Do not use the filesystem version.`;
+    const prompt = `${contexto}\n\nPlan snapshot (review this exact text):\n${version.contenido}\n\nOutput format: VEREDICTO: APROBADO or VEREDICTO: OBJECIONES; OBJECION: section | concrete defect | cause | closing condition (and round-1 justification for new closure-round objections); ACTA: numeric-id | cerrado/abierto for each acta entry; NOTA: observation.`;
     const resultados = await Promise.allSettled((["critico", "oracle"] as const).map(async (revisor) => {
       const respuesta = await encargos.delegar({ a: revisor, prompt }, tool, actores[revisor]);
       const fila = database.query("SELECT * FROM encargos WHERE hija = $hija ORDER BY id DESC LIMIT 1").get({ hija: respuesta.metadata.hija }) as Encargo | null;
