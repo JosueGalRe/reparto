@@ -50,7 +50,7 @@ export interface ErrorCrudo {
   headers: Record<string, string>
 }
 
-export type Clase =
+type Clase =
   | { tipo: 'cuota'; hasta?: number }
   | { tipo: 'velocidad' }
   | { tipo: 'interno' }

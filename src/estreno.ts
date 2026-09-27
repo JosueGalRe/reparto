@@ -17,7 +17,7 @@ interface Ensayo {
   readonly revisor: string
   readonly veredicto: string
 }
-export interface Estreno {
+interface Estreno {
   readonly plan: string
   readonly hash: string
   readonly fecha: number

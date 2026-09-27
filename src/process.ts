@@ -4,7 +4,7 @@ import type { HijaNativa } from './encargos-types.ts'
 import type { Database } from 'bun:sqlite'
 
 /** Estado compartido por todas las instancias del proceso. */
-export interface Proceso {
+interface Proceso {
   validacion?: Validacion
   /** Lo último que se logueó de la validación, para no repetirlo en cada location ni en cada model.updated. */
   firma: string

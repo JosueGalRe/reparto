@@ -123,7 +123,7 @@ export function leerCatalogo(valor: unknown): Catalog {
   return catalog
 }
 
-export interface Migrado {
+interface Migrado {
   actor: Actor
   nota?: string
 }

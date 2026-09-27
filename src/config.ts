@@ -15,7 +15,7 @@ export interface Reparto {
   suplentes?: Actor[]
 }
 
-export interface Proveedor {
+interface Proveedor {
   plazoBaja?: string
 }
 

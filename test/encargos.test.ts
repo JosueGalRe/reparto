@@ -9,7 +9,7 @@ import { argumentoClave, posterior, tituloEncargo } from '../src/encargos-utils.
 import { cambiarEstadoEncargo, encargos, leerEncargo } from '../src/encargos.ts'
 import { hijasNativas, proceso } from '../src/process.ts'
 
-import { sesionesDobles, sesionNativa } from './dobles.ts'
+import { sesionesDobles, sesionNativa } from './dobles-utils.ts'
 
 import type { ContextoEncargos } from '../src/encargos-types.ts'
 

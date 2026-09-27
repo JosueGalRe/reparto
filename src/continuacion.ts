@@ -13,7 +13,7 @@ interface EstadoContinuacion {
   readonly interrumpido: number
   readonly detenido: number
 }
-export interface Decision {
+interface Decision {
   readonly tipo: 'terminado' | 'esperar' | 'interrumpido' | 'continuar' | 'detener'
   readonly intentos?: number
 }

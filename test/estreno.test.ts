@@ -12,7 +12,7 @@ import { log } from '../src/log.ts'
 import { escribirPendientes, leerPendientes } from '../src/pendientes.ts'
 import { proceso } from '../src/process.ts'
 
-import { sesionesEstreno } from './dobles.ts'
+import { sesionesEstreno } from './dobles-utils.ts'
 
 import type { EntradaActa } from '../src/ensayo.ts'
 

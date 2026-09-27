@@ -13,7 +13,7 @@ import type { Actor } from './config.ts'
 import type { Encargo, EntradaRevisor } from './encargos-types.ts'
 import type { Database } from 'bun:sqlite'
 
-export interface Objecion {
+interface Objecion {
   readonly seccion: string
   readonly defecto: string
   readonly causa: string

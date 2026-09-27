@@ -9,7 +9,7 @@ import { encargos } from '../src/encargos.ts'
 import { ensayo } from '../src/ensayo.ts'
 import { abiertos, proceso } from '../src/process.ts'
 
-import { sesionesDobles } from './dobles.ts'
+import { sesionesDobles } from './dobles-utils.ts'
 
 type Sesiones = Parameters<typeof encargos>[0]['session']
 const actor = { model: 'kimi/revisor', variant: 'thinking' }
