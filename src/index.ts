@@ -15,7 +15,7 @@ const modulo = crypto.randomUUID().slice(0, 8);
 const debug = !!process.env.REPARTO_DEBUG;
 
 /** Primarios cuyo actor impone reparto en el hook `prompt`: el servidor no aplica `agent.model` (S10). */
-const primarios = new Set(["director", "build"]);
+const primarios = new Set(["director", "dramaturgo", "build"]);
 
 export default Plugin.define({
   id: "reparto",

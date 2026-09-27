@@ -41,6 +41,8 @@ const permitidas: Record<Estado, readonly Estado[]> = {
 
 /** Agentes y papeles a los que se puede delegar en la fase 1. */
 export const destinos = new Set<string>([...papeles, "utilero", "archivista", "oracle"]);
+const investigacion = new Set(["utilero", "archivista", "oracle"]);
+export const puedeDelegar = (agente: string | undefined, destino: string) => agente !== "dramaturgo" || investigacion.has(destino);
 
 export const PLAZO_ESTANCADO = 30 * 60_000;
 const TOPE_AVISO = 8_000;
@@ -293,12 +295,16 @@ export function encargos(ctx: Ctx, config: Config) {
     if (args.sesion) {
       const previo = db().query("SELECT * FROM encargos WHERE hija = $hija ORDER BY id DESC LIMIT 1").get({ hija: args.sesion }) as Encargo | null;
       if (!previo) throw new Error(`${args.sesion} no es un encargo de reparto`);
+      if (!puedeDelegar(padre.agent, previo.a))
+        throw new Error("dramaturgo solo delega investigación de lectura a utilero, archivista u oracle");
       const s = await ctx.session.get({ sessionID: args.sesion });
       hija = s.id;
       a = previo.a;
       actor = etiquetaRef(s.model);
     } else {
       if (!destinos.has(args.a!)) throw new Error(`"${args.a}" no es un agente ni un papel al que se pueda delegar (${[...destinos].join(", ")})`);
+      if (!puedeDelegar(padre.agent, args.a!))
+        throw new Error("dramaturgo solo delega investigación de lectura a utilero, archivista u oracle");
       if (!validacion.actores.has(args.a!)) throw new Error(`"${args.a}" está desactivado: no tiene actores válidos`);
       const bajas = bajasVigentes(db());
       const elegido = resolver(validacion, args.a!, deBaja(bajas));

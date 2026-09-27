@@ -55,6 +55,20 @@ test("director: permite solo los comandos de lectura reescritos por rtk", () => 
   expect(motivoNegado("rg x > f")).toBe("redirección");
 });
 
+test.each(["edit", "write", "patch"])("dramaturgo: %s solo permite rutas de planes locales", (action) => {
+  // Given: the ruleset installed after the permissive build defaults.
+  const reglas = permisos([{ action: "*", resource: "*", effect: "allow" }]).dramaturgo;
+  const efecto = (resource: string) =>
+    reglas.findLast((rule) =>
+      (rule.action === action || rule.action === "*") &&
+      (rule.resource === "*" || (rule.resource.endsWith("*") && resource.startsWith(rule.resource.slice(0, -1)))),
+    )?.effect;
+
+  // When: a write target is checked; Then: only a local plan passes.
+  expect(efecto(".reparto/planes/x.md")).toBe("allow");
+  for (const path of ["src/x.ts", ".reparto/otro/x.md", "../.reparto/planes/x.md"]) expect(efecto(path)).toBe("deny");
+});
+
 test("utilero: shell abierto, edición y delegación negadas", () => {
   const reglas = permisos([]).subagenteLectura;
   const efecto = (action: string, resource: string) =>

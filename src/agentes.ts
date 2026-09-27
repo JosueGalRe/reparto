@@ -4,8 +4,8 @@ import type { AgentEditor } from "@opencode/plugin/promise/agent";
 import type { Validacion } from "./actores.ts";
 
 export const papeles = ["rapido", "visual", "protagonista", "estelar", "prosa"] as const;
-/** Agentes con shell de lectura: solo el director. */
-export const conShellDeLectura = new Set(["director"]);
+/** Agentes con shell de lectura restringido. */
+export const conShellDeLectura = new Set(["director", "dramaturgo"]);
 
 const guion = (nombre: string) => readFileSync(new URL(`../guiones/${nombre}.md`, import.meta.url), "utf8").trim();
 
@@ -34,6 +34,13 @@ function soloLectura(base: Rule[], extra: string[]): Rule[] {
   return [...base, ...deny("*"), ...allow("read", "glob", "grep", "skill", "webfetch", "websearch", ...extra), ...shellDeLectura, ...restricciones];
 }
 
+function dramaturgo(base: Rule[]): Rule[] {
+  return [
+    ...soloLectura(base, ["question", "delegar"]),
+    ...["edit", "write", "patch"].map((action) => ({ action, resource: ".reparto/planes/*", effect: "allow" as const })),
+  ];
+}
+
 function subagenteSoloLectura(base: Rule[]): Rule[] {
   const restricciones = base.filter((rule) => rule.action === "read" || rule.action === "external_directory");
   return [...base, ...deny("*"), ...allow("read", "glob", "grep", "skill", "webfetch", "websearch", "shell"), ...restricciones];
@@ -51,6 +58,7 @@ export const seccionShell = [
 export function permisos(base: Rule[]) {
   return {
     director: soloLectura(base, ["question", "delegar", "interrumpir", "bitacora", "pendientes"]),
+    dramaturgo: dramaturgo(base),
     subagenteLectura: subagenteSoloLectura(base),
     // Papeles y subagentes no delegan: un encargo nunca espera a otro dentro de la misma cola.
     papel: [...base, ...deny("question", "subagent", "delegar")],
@@ -59,6 +67,7 @@ export function permisos(base: Rule[]) {
 
 const descripciones: Record<string, string> = {
   director: "Takes your requests, delegates every change to agents and papeles, and verifies the result. Does not edit.",
+  dramaturgo: "Interviews Bryan and writes scoped, verifiable plans in .reparto/planes/ only.",
   utilero: "Explores this repository and reports where things are. Read-only.",
   archivista: "Finds documentation and code outside the repository. Read-only.",
   oracle: "Read-only consultant for hard decisions: architecture, trade-offs, stubborn bugs.",
@@ -83,6 +92,7 @@ export function registrar(editor: AgentEditor) {
     });
 
   definir("director", "primary", `${guion("director")}\n\n${seccionShell}`, reglas.director);
+  definir("dramaturgo", "primary", `${guion("dramaturgo")}\n\n${seccionShell}`, reglas.dramaturgo);
   for (const id of ["utilero", "archivista", "oracle"]) definir(id, "subagent", guion(id), reglas.subagenteLectura);
   // Los papeles no se invocan por nombre (no son agentes): se ocultan del `@`.
   for (const id of papeles) definir(id, "subagent", `${guion("papel")}\n\n${guion(id)}`, reglas.papel, true);

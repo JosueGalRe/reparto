@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDb } from "../src/db.ts";
-import { argumentoClave, leer, posterior, textoAviso, tituloEncargo, transicion, vivo, yo } from "../src/encargos.ts";
+import { argumentoClave, leer, posterior, puedeDelegar, textoAviso, tituloEncargo, transicion, vivo, yo } from "../src/encargos.ts";
 import { proceso } from "../src/process.ts";
 
 const dir = mkdtempSync(join(tmpdir(), "reparto-encargos-"));
@@ -52,6 +52,14 @@ test("vivo: este proceso sí; otro starttime u otro arranque, no", () => {
   expect(vivo(yo)).toBe(true);
   expect(vivo({ ...yo, starttime: "0" })).toBe(false);
   expect(vivo({ ...yo, boot_id: "otro" })).toBe(false);
+});
+
+test("dramaturgo solo delega lectura; director mantiene los papeles", () => {
+  // Given: destinations for research and implementation.
+  // When: each primary agent delegates; Then: the dramaturgo cannot launch an editing papel.
+  for (const a of ["utilero", "archivista", "oracle"]) expect(puedeDelegar("dramaturgo", a)).toBe(true);
+  expect(puedeDelegar("dramaturgo", "protagonista")).toBe(false);
+  expect(puedeDelegar("director", "protagonista")).toBe(true);
 });
 
 test("argumento clave de una tool call", () => {
