@@ -62,7 +62,8 @@ function soloLectura(base: Rule[], extra: string[]): Rule[] {
 
 function dramaturgo(base: Rule[]): Rule[] {
   return [
-    ...soloLectura(base, ['question', 'delegar', 'bitacora', 'ensayar']),
+    ...soloLectura(base, ['question', 'bitacora', 'ensayar']),
+    ...['utilero', 'archivista', 'oracle'].map((resource) => ({ action: 'subagent', resource, effect: 'allow' as const })),
     ...['edit', 'write', 'patch'].map((action) => ({ action, resource: '.reparto/planes/*', effect: 'allow' as const })),
   ]
 }
@@ -85,15 +86,15 @@ export const seccionShell = [
 export function permisos(base: Rule[]) {
   return {
     director: [
-      ...soloLectura(base, ['question', 'delegar', 'interrumpir', 'bitacora', 'pendientes']),
+      ...soloLectura(base, ['question', 'subagent', 'interrumpir', 'bitacora', 'pendientes']),
       ...deny(...mcpActions),
       ...allow(mcpActions[0]),
     ],
-    regidor: [...soloLectura(base, ['question', 'delegar', 'interrumpir', 'bitacora', 'pendientes']), ...deny(...mcpActions)],
+    regidor: [...soloLectura(base, ['question', 'subagent', 'interrumpir', 'bitacora', 'pendientes']), ...deny(...mcpActions)],
     dramaturgo: [...dramaturgo(base), ...deny(...mcpActions)],
     subagenteLectura: [...subagenteSoloLectura(base), ...deny(...mcpActions)],
     archivista: [...subagenteSoloLectura(base), ...deny(...mcpActions), ...allow(...mcpActions)],
-    // Papeles y subagentes no delegan: un encargo nunca espera a otro dentro de la misma cola.
+    // Papeles y subagentes no delegan.
     papel: [...base, ...deny('question', 'subagent', 'delegar', ...mcpActions)],
   }
 }
@@ -142,7 +143,7 @@ export function registrar(editor: AgentEditor) {
   }
 
   editor.update('build', (agent) => {
-    agent.permissions.push(...deny('subagent', ...mcpActions))
+    agent.permissions.push(...allow('subagent'), ...deny('delegar', ...mcpActions))
   })
 
   for (const agent of editor.list()) {

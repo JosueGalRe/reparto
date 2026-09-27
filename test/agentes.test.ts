@@ -38,7 +38,8 @@ test('director: la lista permitida va después de negar todo, y las restriccione
   expect(ultima('edit')).toBe('deny')
   expect(ultima('pty_spawn')).toBe('deny')
   expect(ultima('execute')).toBe('deny')
-  expect(ultima('delegar')).toBe('allow')
+  expect(ultima('delegar')).toBe('deny')
+  expect(ultima('subagent')).toBe('allow')
   expect(ultima('read', '*.env')).toBe('ask')
 
   for (const action of ['question', 'subagent', 'delegar', 'context7_*', 'grep_app_*']) {
@@ -121,6 +122,28 @@ test('dramaturgo puede ensayar y leer bitacora; critico sigue siendo de solo lec
   expect(subagenteLectura.findLast((regla) => regla.action === 'shell' || regla.action === '*')?.effect).toBe('allow')
 })
 
+test('director, regidor y build permiten subagent pero no delegar; dramaturgo solo investiga', () => {
+  // Given: the registered agents, including build's permissive base.
+  const { director, regidor, dramaturgo } = permisos([{ action: '*', resource: '*', effect: 'allow' }])
+  const effect = (rules: typeof director, action: string, resource: string) =>
+    rules.findLast(
+      (rule) => (rule.action === action || rule.action === '*') && (rule.resource === resource || rule.resource === '*'),
+    )?.effect
+
+  // When: the native tool checks its destination; Then: only research targets pass for dramaturgo.
+  for (const rules of [director, regidor]) {
+    expect(effect(rules, 'subagent', 'rapido')).toBe('allow')
+    expect(effect(rules, 'delegar', '*')).toBe('deny')
+  }
+
+  for (const agent of ['utilero', 'archivista', 'oracle']) {
+    expect(effect(dramaturgo, 'subagent', agent)).toBe('allow')
+  }
+
+  expect(effect(dramaturgo, 'subagent', 'rapido')).toBe('deny')
+  expect(effect(dramaturgo, 'delegar', '*')).toBe('deny')
+})
+
 test("regidor keeps director's read-only rules without inheriting context7", () => {
   // Given: a build agent with permissive defaults.
   const agents = new Map<
@@ -154,6 +177,8 @@ test("regidor keeps director's read-only rules without inheriting context7", () 
   expect(agents.get('regidor')?.permissions.findLast((regla) => regla.action === 'context7_*')?.effect).toBe('deny')
   expect(agents.get('archivista')?.permissions.findLast((regla) => regla.action === 'grep_app_*')?.effect).toBe('allow')
   expect(agents.get('general')?.permissions.findLast((regla) => regla.action === 'grep_app_*')?.effect).toBe('deny')
+  expect(agents.get('build')?.permissions.findLast((regla) => regla.action === 'subagent')?.effect).toBe('allow')
+  expect(agents.get('build')?.permissions.findLast((regla) => regla.action === 'delegar')?.effect).toBe('deny')
 })
 
 test('MCP permissions only expose context7 to director and archivista, grep_app to archivista', () => {

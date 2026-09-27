@@ -17,6 +17,7 @@ Sondas del 2026-09-27 en el servidor de desarrollo, sesiones `ses_f1e9cc46effeOx
 - El hook `retry` se dispara con el `sessionID` de la hija y el cambio al suplente funciona.
 - `execute.after` se dispara dentro de las hijas, así que la bitácora funciona.
 - La continuación con `sessionID` conserva la hija, su historial y su `parentID`, y el hook del actor se vuelve a aplicar.
+- Pasar otro `agent` al continuar cambia el agente de la hija; se debe pasar el mismo. La permission `subagent` recibe como `resource` el id del agente destino (`resources: [X.id]` en V2 2.0.18).
 - El hook `context` puede inyectar un SKILL.md en el guion de una hija (`ev.system.push`).
 - OpenChamber agrupa las hijas bajo el padre, muestra si están trabajando o terminadas y presenta los permisos que pide una hija como tarjetas en la vista del padre.
 - El fin llega al padre como un mensaje `synthetic` nativo (source: subagent).
@@ -25,7 +26,7 @@ Sondas del 2026-09-27 en el servidor de desarrollo, sesiones `ses_f1e9cc46effeOx
 
 1. **Se elimina la cola por proveedor.** Esperar dentro del hook `prompt` serializa las hijas, pero bloquea la tool call del padre y anula el background. Es una simplificación deliberada; la vía de vuelta es una cola global en SQLite, si el tope por proveedor vuelve a hacer falta por 429 propios.
 2. **Skills.** La hija los carga con la tool nativa `skill`: el brief los nombra y el guion del papel dice que los cargue primero. Plan B, si una hija los ignora: inyectarlos con el hook `context`.
-3. **Qué se retira y qué se conserva.** Para las hijas nativas se retiran los avisos visibles de encargo, los avisos de permisos pendientes y la reconciliación al arrancar. Se conservan el actor por hook, las bajas y suplentes, la bitácora, `interrumpir` (propiedad por `parentID`) y un vigilante de estancados más simple, basado en eventos. `ensayar` mantiene el mecanismo interno.
+3. **Qué se retira y qué se conserva.** Para las hijas nativas se retiran los avisos visibles de encargo, los avisos de permisos pendientes y la reconciliación al arrancar. Se conservan el actor por hook, las bajas y suplentes, la bitácora, `interrumpir` (propiedad por `parentID`) y un vigilante de estancados más simple, basado en eventos. `ensayar` mantiene el mecanismo interno y el aviso de permiso para sus revisores sin `parentID` nativo.
 
 ## Consequences
 

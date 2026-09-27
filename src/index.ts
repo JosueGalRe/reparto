@@ -7,7 +7,7 @@ import { readCatalog } from './catalog.ts'
 import { configPath, loadConfig } from './config.ts'
 import { continuacion } from './continuacion.ts'
 import { db, ensureSchema } from './db.ts'
-import { destinos, encargos, hijosNativos } from './encargos.ts'
+import { encargos, hijosNativos } from './encargos.ts'
 import { ensayo } from './ensayo.ts'
 import { clavePlan, estreno, planDeSesion } from './estreno.ts'
 import { log } from './log.ts'
@@ -232,39 +232,11 @@ export default Plugin.define({
         }
       })
 
-      const gestor = encargos(ctx, config)
+      const gestor = encargos(ctx)
       const ensayar = ensayo(ctx, gestor)
 
       // Codemode: false, o el modelo solo las alcanza desde `execute` (S11)
       await ctx.tool.transform((editor) => {
-        editor.add({
-          name: 'delegar',
-          description:
-            'Delegate work to a reparto agent or papel in a new child session (an encargo), or resume one with `sesion`. ' +
-            "Synchronous by default: returns the child's final message. With `background: true` returns at once, and a notice arrives in this conversation when the encargo ends, fails, is interrupted or goes stale.",
-          input: {
-            type: 'object',
-            properties: {
-              a: {
-                type: 'string',
-                enum: [...destinos],
-                description: 'Agent or papel that takes the encargo. Ignored with `sesion`.',
-              },
-              prompt: { type: 'string', description: 'The brief: goal, context, constraints, acceptance, report.' },
-              background: { type: 'boolean', description: 'Return at once and get a notice when it closes.' },
-              sesion: { type: 'string', description: 'Child session id of an earlier encargo to resume, keeping its history.' },
-              skills: {
-                type: 'array',
-                items: { type: 'string' },
-                description: "Skill ids to load into the child's first message.",
-              },
-            },
-            required: ['prompt'],
-            additionalProperties: false,
-          },
-          options: { codemode: false },
-          execute: (input, tool) => gestor.delegar(input, tool),
-        })
         editor.add({
           name: 'bitacora',
           description:
@@ -304,7 +276,7 @@ export default Plugin.define({
           name: 'interrumpir',
           description:
             'Interrupt one of your own open encargos (for example a stale one). Only encargos this session launched can be interrupted. ' +
-            'The encargo closes as interrumpido and, if it ran in background, its notice arrives as usual.',
+            'Native children receive their completion through the native subagent tool.',
           input: {
             type: 'object',
             properties: { id: { type: 'string', description: 'Child session id of the encargo.' } },
@@ -380,9 +352,6 @@ export default Plugin.define({
       })()
 
       const vigilante = setInterval(() => void gestor.vigilar(), 60_000)
-
-      // Sin esperarla, para no bloquear el arranque
-      void gestor.reconciliar()
 
       return () => {
         stop.abort()

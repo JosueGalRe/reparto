@@ -1,4 +1,5 @@
 import { db, write } from './db.ts'
+import { hijosNativos } from './encargos.ts'
 import { clavePlan, planDeSesion, type ReferenciaPlan } from './estreno.ts'
 import { log } from './log.ts'
 import { type Item, leerPendientes } from './pendientes.ts'
@@ -44,6 +45,7 @@ export function decisionGuardada(
   sesion: string,
   ref: ReferenciaPlan,
   eventId: string,
+  background = 0,
 ): { decision: Decision; items: Item[] } | undefined {
   const clave = clavePlan(ref)
 
@@ -59,12 +61,6 @@ export function decisionGuardada(
       .query('SELECT firma, intentos, interrumpido, detenido FROM continuaciones WHERE sesion = $sesion')
       .get({ sesion }) as Estado
     const items = leerPendientes(database, clave)
-    const background = (
-      database
-        .query(`SELECT count(*) AS n FROM encargos WHERE padre = $sesion AND background = 1
-      AND (estado IN ('en_cola', 'corriendo', 'estancado') OR aviso_pendiente = 1)`)
-        .get({ sesion }) as { n: number }
-    ).n
     const decision = decidirContinuacion(items, background, estado)
 
     if (decision.tipo === 'continuar') {
@@ -130,7 +126,8 @@ export function continuacion(ctx: Plugin.Context) {
         return
       }
 
-      const actual = decisionGuardada(db(), sessionID, ref, ev.id)
+      const background = [...hijosNativos().values()].filter((hija) => hija.padre === sessionID).length
+      const actual = decisionGuardada(db(), sessionID, ref, ev.id, background)
 
       if (!actual) {
         return

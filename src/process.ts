@@ -8,10 +8,6 @@ export interface Proceso {
   /** Lo último que se logueó de la validación, para no repetirlo en cada location ni en cada model.updated. */
   firma: string
   db?: Database
-  /** Cola por proveedor: encargos corriendo y los que esperan cupo. */
-  colas?: Map<string, { corriendo: number; espera: (() => void)[] }>
-  /** Qué proveedor ocupa cada encargo que tiene cupo. */
-  cupos?: Map<number, string>
   /** Hijas con un encargo abierto en este proceso, con su última actividad. */
   abiertos?: Map<string, { id: number; actividad: number; estancado?: boolean }>
   /** Hijas nativas activas; el evento de ejecución cierra su vigilancia. */

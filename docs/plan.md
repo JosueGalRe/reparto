@@ -293,8 +293,8 @@ Aplica el ADR 0013: los encargos pasan al `subagent` nativo y reparto agrega lo 
 
 ### 3.3 Permisos y guiones
 
-- Director, regidor y `build` tienen `subagent` permitido y `delegar` negado. Papeles y subagentes no tienen ninguno de los dos.
-- El guion del director enruta con `subagent` en background y retoma con `sessionID`.
+- Director, regidor y `build` tienen `subagent` permitido y `delegar` negado. El dramaturgo solo puede invocar `utilero`, `archivista` y `oracle` mediante reglas por resource. Papeles y subagentes no tienen ninguno de los dos.
+- El guion del director enruta con `subagent` en background y retoma con `sessionID` y el mismo `agent`: V2 cambia el agente de una hija si la continuación pasa otro.
 - El guion de papel carga los skills del brief con la tool `skill` antes de empezar, no usa `pty_*` (una llamada a pty que nunca vuelve rompe el transcript en OpenAI) y arranca servidores con `background: true` del shell.
 - **Escenarios:**
   - `delegar` no aparece en la lista de tools del director; `subagent` sí.
@@ -305,7 +305,7 @@ Aplica el ADR 0013: los encargos pasan al `subagent` nativo y reparto agrega lo 
 ### 3.4 Retiro de avisos, reconciliación y cola
 
 - Se borra para hijas nativas: los avisos visibles de encargo, los avisos de permisos pendientes, la reconciliación al arrancar y la cola por proveedor. Se borra el código muerto que queda en `src/encargos.ts`.
-- `ensayar` sigue usando `delegar` sincrónico y sus tablas.
+- `ensayar` sigue usando `delegar` sincrónico y sus tablas, sin registrar la tool; sus revisores no tienen `parentID` nativo y conservan el aviso de permiso para que el padre pueda actuar.
 - **Escenarios:**
   - Un encargo termina: el padre recibe solo el `synthetic` nativo, sin aviso de reparto.
   - Una hija pide un permiso: aparece como tarjeta en la vista del padre en OpenChamber y no llega ningún aviso de texto.
@@ -329,4 +329,4 @@ Aplica el ADR 0013: los encargos pasan al `subagent` nativo y reparto agrega lo 
 - **Hooks experimentales**: la cuota de `openai` solo se ve en `experimental.ws.receive` (S3). Si ese hook cambia, la baja de OpenAI cae en `plazoBaja` en lugar del reset real.
 - **OpenChamber y el agente por defecto**: OpenChamber no usa `AgentEditor.default` y abre en el agente guardado o en `plan` (S10). El director hay que elegirlo una vez a mano; el hook `prompt` igual le impone su actor.
 - **Convivencia con OMO en desarrollo**: los nombres de tools y agentes en español no chocan con los de OMO, pero los dos plugins registrarían hooks de sesión sobre las mismas sesiones. Por eso se desarrolla con la config alternativa de S0 hasta el corte.
-- **Encargos en background y reinicios**: un encargo vive en el proceso del servidor que lo creó (S15). Si ese servidor se detiene, el encargo muere con él y la reconciliación lo marca `fallido` en el próximo arranque. Un encargo sincrónico cuyo padre murió con el proceso corre la misma suerte.
+- **Encargos en background y reinicios**: un encargo vive en el proceso del servidor que lo creó (S15). Si ese servidor se detiene, la hija nativa queda huérfana: no hay reconciliación ni marcado `fallido` (ADR 0013). El padre la ve sin respuesta y decide.

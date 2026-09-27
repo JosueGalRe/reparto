@@ -1,14 +1,10 @@
-import { readFileSync } from 'node:fs'
-
 import { etiqueta, modelRef, resolver } from './actores.ts'
-import { papeles } from './agentes.ts'
 import { bajasVigentes, deBaja } from './bajas.ts'
 import { db, write } from './db.ts'
-import { planDeSesion } from './estreno.ts'
 import { log } from './log.ts'
 import { proceso } from './process.ts'
 
-import type { Actor, Config } from './config.ts'
+import type { Actor } from './config.ts'
 import type { Plugin } from '@opencode/plugin'
 import type { ToolContext } from '@opencode/plugin/promise/tool'
 
@@ -42,18 +38,12 @@ const permitidas: Record<Estado, readonly Estado[]> = {
   interrumpido: [],
 }
 
-/** Agentes y papeles a los que se puede delegar en la fase 1. */
-export const destinos = new Set<string>([...papeles, 'utilero', 'archivista', 'oracle'])
-const investigacion = new Set(['utilero', 'archivista', 'oracle'])
-
-export const puedeDelegar = (agente: string | undefined, destino: string) =>
-  agente !== 'dramaturgo' || investigacion.has(destino)
+/** El mecanismo interno de ensayar solo invoca a sus dos revisores. */
+export const destinos = new Set<string>(['critico', 'oracle'])
 
 export const PLAZO_ESTANCADO = 30 * 60_000
 const TOPE_AVISO = 8_000
-const TOPE_AVISO_VISIBLE = 1_500
 const TOPE_RESULTADO = 4_000
-const CONCURRENCIA = 3
 
 const recortar = (texto: string, tope: number) =>
   texto.length > tope ? `${texto.slice(0, tope)}\n[… recortado, ${texto.length - tope} caracteres más]` : texto
@@ -63,25 +53,6 @@ export function tituloEncargo(agente: string, prompt: string): string {
 
   return `${agente} · ${resumen.length > 60 ? `${resumen.slice(0, 60)}…` : resumen}`
 }
-
-// ---------- Proceso dueño de un encargo (ADR 0010): boot_id + pid + starttime, porque el pid solo se reusa ----------
-
-const bootId = readFileSync('/proc/sys/kernel/random/boot_id', 'utf8').trim()
-
-function starttime(pid: number): string | undefined {
-  try {
-    const stat = readFileSync(`/proc/${pid}/stat`, 'utf8')
-
-    // Campo 22 de /proc/<pid>/stat; el nombre del proceso (campo 2) puede tener espacios, así que se cuenta desde el ")"
-    return stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19]
-  } catch {
-    return undefined
-  }
-}
-
-export const yo = { boot_id: bootId, pid: process.pid, starttime: starttime(process.pid) ?? '' }
-export const vivo = (encargo: Pick<Encargo, 'boot_id' | 'pid' | 'starttime'>) =>
-  encargo.boot_id === bootId && starttime(encargo.pid) === encargo.starttime
 
 // ---------- Filas ----------
 
@@ -113,77 +84,7 @@ export function transicion(encargo: Encargo, estado: Estado, cambios: Cambios = 
 export const posterior = (instante: number | undefined, desde: number | null) =>
   instante !== undefined && desde !== null && instante > desde
 
-// ---------- Cola por proveedor, en el proceso (S15 contradicha: vive en globalThis) ----------
-
-function cola(proveedor: string) {
-  proceso.colas ??= new Map()
-  let cupo = proceso.colas.get(proveedor)
-
-  if (!cupo) {
-    proceso.colas.set(proveedor, (cupo = { corriendo: 0, espera: [] }))
-  }
-
-  return cupo
-}
-
-async function tomarCupo(proveedor: string, limite: number, id: number) {
-  const cupo = cola(proveedor)
-
-  if (cupo.corriendo >= limite) {
-    log.info('cola: en espera', { proveedor, id, corriendo: cupo.corriendo, limite, enEspera: cupo.espera.length + 1 })
-    await new Promise<void>((resolve) => cupo.espera.push(resolve))
-  } else {
-    cupo.corriendo++
-  }
-
-  ;(proceso.cupos ??= new Map()).set(id, proveedor)
-  log.info('cola: corre', { proveedor, id, corriendo: cupo.corriendo, limite, enEspera: cupo.espera.length })
-}
-
-function soltarCupo(id: number) {
-  const proveedor = proceso.cupos?.get(id)
-
-  if (!proveedor) {
-    return
-  }
-
-  proceso.cupos!.delete(id)
-  const cupo = cola(proveedor)
-  const siguiente = cupo.espera.shift()
-
-  if (siguiente) {
-    siguiente()
-  } else {
-    cupo.corriendo--
-  }
-
-  log.info('cola: libera', { proveedor, id, corriendo: cupo.corriendo, enEspera: cupo.espera.length })
-}
-
-/**
- * Un encargo que cambia de actor a otro proveedor (1.8) pasa su cupo a la cola nueva. Si está llena la excede:
- * esperar un cupo dentro de `retry` podría trabarse con cambios cruzados.
- */
-// Ponytail: exceso por suplencia; cola estricta si provoca 429 propios
-export function moverCupo(id: number, proveedor: string, limite: number) {
-  const anterior = proceso.cupos?.get(id)
-
-  if (!anterior || anterior === proveedor) {
-    return
-  }
-
-  soltarCupo(id)
-  const cupo = cola(proveedor)
-
-  cupo.corriendo++
-  proceso.cupos!.set(id, proveedor)
-
-  if (cupo.corriendo > limite) {
-    log.warn('cola: exceso por suplencia', { id, de: anterior, a: proveedor, corriendo: cupo.corriendo, limite })
-  } else {
-    log.info('cola: cupo movido', { id, de: anterior, a: proveedor, corriendo: cupo.corriendo, limite })
-  }
-}
+// Ponytail: sin cola por proveedor; si los 429 propios la exigen, usar una cola global en SQLite.
 
 export const abiertos = () => (proceso.abiertos ??= new Map())
 export const hijosNativos = () => (proceso.hijosNativos ??= new Map())
@@ -195,9 +96,6 @@ type Ctx = Plugin.Context
 interface Entrada {
   a?: string
   prompt: string
-  background?: boolean
-  sesion?: string
-  skills?: string[]
 }
 
 function parsear(input: unknown): Entrada {
@@ -207,62 +105,21 @@ function parsear(input: unknown): Entrada {
     throw new Error('delegar: falta `prompt`')
   }
 
-  if (entrada.sesion === undefined && typeof entrada.a !== 'string') {
-    throw new Error('delegar: falta `a` (o `sesion` para retomar)')
+  if (typeof entrada.a !== 'string') {
+    throw new Error('delegar: falta `a`')
   }
 
   return {
     a: typeof entrada.a === 'string' ? entrada.a : undefined,
     prompt: entrada.prompt,
-    background: entrada.background === true,
-    sesion: typeof entrada.sesion === 'string' ? entrada.sesion : undefined,
-    skills: Array.isArray(entrada.skills)
-      ? entrada.skills.filter((skill): skill is string => typeof skill === 'string')
-      : undefined,
   }
 }
 
 const etiquetaRef = (modelo: { providerID: string; id: string; variant?: string } | undefined) =>
   modelo ? etiqueta({ model: `${modelo.providerID}/${modelo.id}`, variant: modelo.variant }) : 'desconocido'
 
-export function textoAviso(encargo: Encargo, ultimoActor: string, titulo: string): string {
-  const cabeza = `[reparto] ${titulo} — ${encargo.estado} (${encargo.hija})`
-  const suplente =
-    ultimoActor.replace(/#default$/, '') !== encargo.actor.replace(/#default$/, '')
-      ? `\nentró como suplente en lugar de ${encargo.actor}.`
-      : ''
-  const pista = `(bitacora({ id: "${encargo.hija}" }) para el resto)`
-
-  switch (encargo.estado) {
-    case 'terminado': {
-      return `${cabeza}\n\n${recortar(encargo.mensaje_final ?? '', TOPE_AVISO_VISIBLE)}${suplente}\n${pista}`
-    }
-
-    case 'fallido': {
-      return `${cabeza}\n\nError: ${recortar(encargo.error ?? 'la ejecución falló', 120)}. Último actor: ${ultimoActor}.${suplente}${encargo.mensaje_final ? `\nÚltimo mensaje: ${recortar(encargo.mensaje_final, TOPE_AVISO_VISIBLE)}` : ''}\n${pista}`
-    }
-
-    case 'interrumpido': {
-      return `${cabeza}\n\nInterrumpido antes de completar el encargo.${suplente}\n${pista}`
-    }
-
-    case 'estancado': {
-      return `${cabeza}\n\nSin actividad desde hace ${PLAZO_ESTANCADO / 60_000} min. Sigue abierto; decide si lo interrumpes.${suplente}\n${pista}`
-    }
-
-    case 'en_cola':
-    case 'corriendo': {
-      throw new Error(`aviso para encargo abierto: ${encargo.estado}`)
-    }
-  }
-}
-
 export function textoPermiso(titulo: string, action: string, resources: readonly string[], requestID: string): string {
   return `[reparto] ${titulo} — espera permiso: ${action} ${resources.join(', ')} (${requestID})\nÁbrela en chats por su título y aprueba o rechaza ahí.`
-}
-
-export function permisoPendiente(hija: string): boolean {
-  return !!db().query("SELECT 1 FROM permisos WHERE hija = $hija AND estado = 'pendiente' LIMIT 1").get({ hija })
 }
 
 export function registrarPermiso(request: {
@@ -290,9 +147,7 @@ export function registrarPermiso(request: {
   )
 }
 
-export function encargos(ctx: Ctx, config: Config) {
-  const limite = (proveedor: string) => config.proveedores?.[proveedor]?.concurrencia ?? CONCURRENCIA
-
+export function encargos(ctx: Ctx) {
   async function mensajeFinal(hija: string): Promise<string | undefined> {
     const mensajes = await ctx.session.context({ sessionID: hija })
 
@@ -309,25 +164,6 @@ export function encargos(ctx: Ctx, config: Config) {
       if (texto) {
         return texto
       }
-    }
-  }
-
-  async function avisar(encargo: Encargo, ultimoActor: string) {
-    try {
-      const hija = await ctx.session.get({ sessionID: encargo.hija })
-
-      await ctx.session.prompt({
-        sessionID: encargo.padre,
-        text: textoAviso(encargo, ultimoActor, hija.title ?? encargo.hija),
-        delivery: 'queue',
-        metadata: { repartoAviso: true },
-      })
-      write(db(), 'aviso enviado', () =>
-        db().query('UPDATE encargos SET aviso_pendiente = 0 WHERE id = $id').run({ id: encargo.id }),
-      )
-      log.info('aviso', { id: encargo.id, hija: encargo.hija, padre: encargo.padre, estado: encargo.estado })
-    } catch (error) {
-      log.error('aviso falló', { id: encargo.id, padre: encargo.padre, error: String(error) })
     }
   }
 
@@ -356,7 +192,7 @@ export function encargos(ctx: Ctx, config: Config) {
     return { estado: 'fallido' as const, mensaje, error: errorEvento ?? 'la ejecución falló', ultimoActor }
   }
 
-  /** Cierra un encargo abierto de este proceso. Solo avisa quien gana la transición. */
+  /** Cierra un revisor sincrónico de este proceso. */
   async function cerrar(id: number, evento?: { created: number; error?: string }) {
     proceso.cerrando ??= new Set()
 
@@ -388,16 +224,13 @@ export function encargos(ctx: Ctx, config: Config) {
         cerrado: Date.now(),
         mensaje_final: cierreActual.mensaje ?? null,
         error: cierreActual.error ?? null,
-        aviso_pendiente: encargo.background,
       }
 
       if (!transicion(encargo, cierreActual.estado, cambios)) {
         return
       }
 
-      soltarCupo(encargo.id)
       abiertos().delete(encargo.hija)
-      const cerrado = { ...encargo, ...cambios, estado: cierreActual.estado }
 
       log.info('encargo cerrado', {
         id,
@@ -407,10 +240,6 @@ export function encargos(ctx: Ctx, config: Config) {
         error: cierreActual.error,
         actor: cierreActual.ultimoActor,
       })
-
-      if (encargo.background) {
-        await avisar(cerrado, cierreActual.ultimoActor)
-      }
     } catch (error) {
       log.error('cierre falló', { id, error: String(error) })
     } finally {
@@ -418,17 +247,12 @@ export function encargos(ctx: Ctx, config: Config) {
     }
   }
 
-  /** Espera el cupo, pasa a corriendo y manda el prompt. false si el encargo no llegó a correr. */
+  /** Pasa a corriendo y manda el prompt. */
   async function correr(id: number, prompt: string, skills: string[] | undefined): Promise<boolean> {
-    const inicial = leer(id)!
-
-    await tomarCupo(inicial.actor.split('/')[0]!, limite(inicial.actor.split('/')[0]!), id)
     const encargo = leer(id)!
     const desde = Date.now()
 
     if (encargo.estado !== 'en_cola' || !transicion(encargo, 'corriendo', { desde })) {
-      soltarCupo(id)
-
       return false
     }
 
@@ -449,15 +273,9 @@ export function encargos(ctx: Ctx, config: Config) {
         transicion(actual, 'fallido', {
           cerrado: Date.now(),
           error: `el prompt falló: ${String(error)}`,
-          aviso_pendiente: encargo.background,
         })
       ) {
-        soltarCupo(id)
         abiertos().delete(encargo.hija)
-
-        if (encargo.background) {
-          await avisar({ ...actual, estado: 'fallido', error: `el prompt falló: ${String(error)}` }, encargo.actor)
-        }
       }
 
       return false
@@ -474,80 +292,51 @@ export function encargos(ctx: Ctx, config: Config) {
 
     const padre = await ctx.session.get({ sessionID: tool.sessionID })
 
-    if (padre.agent === 'regidor' && !planDeSesion(db(), tool.sessionID)) {
-      throw new Error('regidor sin plan estrenado: usa /estreno <plan>')
-    }
-
-    let hija: string
-    let agente: string
-    let actor: string
     let suplencia: string | undefined
 
-    if (args.sesion) {
-      const previo = db()
-        .query('SELECT * FROM encargos WHERE hija = $hija ORDER BY id DESC LIMIT 1')
-        .get({ hija: args.sesion }) as Encargo | null
-
-      if (!previo) {
-        throw new Error(`${args.sesion} no es un encargo de reparto`)
-      }
-
-      if (!puedeDelegar(padre.agent, previo.a)) {
-        throw new Error('dramaturgo solo delega investigación de lectura a utilero, archivista u oracle')
-      }
-
-      const sesion = await ctx.session.get({ sessionID: args.sesion })
-
-      hija = sesion.id
-      agente = previo.a
-      actor = etiquetaRef(sesion.model)
-    } else {
-      if (!destinos.has(args.a!) && !(actorElegido && args.a === 'critico')) {
-        throw new Error(`"${args.a}" no es un agente ni un papel al que se pueda delegar (${[...destinos].join(', ')})`)
-      }
-
-      if (!actorElegido && !puedeDelegar(padre.agent, args.a!)) {
-        throw new Error('dramaturgo solo delega investigación de lectura a utilero, archivista u oracle')
-      }
-
-      if (!validacion.actores.has(args.a!)) {
-        throw new Error(`"${args.a}" está desactivado: no tiene actores válidos`)
-      }
-
-      const bajas = bajasVigentes(db())
-      const elegido = actorElegido ?? resolver(validacion, args.a!, deBaja(bajas))
-
-      if (!elegido) {
-        throw new Error(
-          `todos los actores de "${args.a}" están de baja: ${bajas.map((baja) => `${baja.id} hasta ${new Date(baja.hasta).toISOString()}`).join(', ')}`,
-        )
-      }
-
-      if (elegido !== validacion.actores.get(args.a!)![0]) {
-        suplencia = `el titular está de baja; entra ${etiqueta(elegido)}`
-      }
-
-      const sesion = await ctx.session.create({
-        title: tituloEncargo(args.a!, args.prompt),
-        agent: args.a,
-        model: modelRef(elegido),
-        location: { directory: padre.location.directory },
-        metadata: { padre: tool.sessionID },
-      })
-
-      hija = sesion.id
-      agente = args.a!
-      actor = etiqueta(elegido)
+    if (!destinos.has(args.a!)) {
+      throw new Error(`"${args.a}" no es un agente ni un papel al que se pueda delegar (${[...destinos].join(', ')})`)
     }
+
+    if (!validacion.actores.has(args.a!)) {
+      throw new Error(`"${args.a}" está desactivado: no tiene actores válidos`)
+    }
+
+    const bajas = bajasVigentes(db())
+    const elegido = actorElegido ?? resolver(validacion, args.a!, deBaja(bajas))
+
+    if (!elegido) {
+      throw new Error(
+        `todos los actores de "${args.a}" están de baja: ${bajas.map((baja) => `${baja.id} hasta ${new Date(baja.hasta).toISOString()}`).join(', ')}`,
+      )
+    }
+
+    if (elegido !== validacion.actores.get(args.a!)?.[0]) {
+      suplencia = `el titular está de baja; entra ${etiqueta(elegido)}`
+    }
+
+    const sesion = await ctx.session.create({
+      title: tituloEncargo(args.a!, args.prompt),
+      agent: args.a,
+      model: modelRef(elegido),
+      location: { directory: padre.location.directory },
+      metadata: { padre: tool.sessionID },
+    })
+
+    const hija = sesion.id
+    const agente = args.a!
+    const actor = etiqueta(elegido)
 
     const fila = {
       hija,
       padre: tool.sessionID,
       a: agente,
       actor,
-      background: args.background ? 1 : 0,
+      background: 0,
       creado: Date.now(),
-      ...yo,
+      boot_id: '',
+      pid: process.pid,
+      starttime: '',
     }
     // Chequeo e INSERT en la misma transacción IMMEDIATE: dos retomas simultáneas, aun desde procesos distintos, no pasan las dos.
     const id = write(db(), 'crear encargo', () => {
@@ -585,20 +374,9 @@ export function encargos(ctx: Ctx, config: Config) {
       padre: tool.sessionID,
       a: agente,
       actor,
-      background: !!args.background,
-      retoma: !!args.sesion,
       suplencia,
     })
     const nota = suplencia ? ` (${suplencia})` : ''
-
-    if (args.background) {
-      void correr(id, args.prompt, args.skills)
-
-      return {
-        content: `Encargo ${hija} lanzado en background a ${agente} (${actor})${nota}. Te llega un aviso cuando termine, falle, lo interrumpan o quede estancado; no hace falta consultarlo.`,
-        metadata: { encargo: id, hija },
-      }
-    }
 
     const interrumpir = () => {
       const encargo = leer(id)
@@ -615,7 +393,7 @@ export function encargos(ctx: Ctx, config: Config) {
     tool.signal.addEventListener('abort', interrumpir, { once: true })
 
     try {
-      if (await correr(id, args.prompt, args.skills)) {
+      if (await correr(id, args.prompt, undefined)) {
         await ctx.session.wait({ sessionID: hija })
         await cerrar(id)
       }
@@ -632,14 +410,11 @@ export function encargos(ctx: Ctx, config: Config) {
 
     if (isOpen(encargo)) {
       return {
-        content: `Encargo ${hija} (${agente}) sigue ${encargo.estado}; te llega un aviso cuando cierre.`,
+        content: `Encargo ${hija} (${agente}) sigue ${encargo.estado}.`,
         metadata: { encargo: id, hija },
       }
     }
 
-    write(db(), 'encargo sincrónico entregado', () =>
-      db().query('UPDATE encargos SET aviso_pendiente = 0 WHERE id = $id').run({ id }),
-    )
     const cuerpo =
       encargo.estado === 'terminado' ? recortar(encargo.mensaje_final ?? '', TOPE_AVISO) : (encargo.error ?? encargo.estado)
 
@@ -681,19 +456,15 @@ export function encargos(ctx: Ctx, config: Config) {
 
     if (encargo.estado === 'en_cola') {
       // No llegó a correr: no hay ejecución que interrumpir, y en_cola solo puede pasar a corriendo o fallido
-      const cambios = { cerrado: Date.now(), error: 'interrumpido antes de correr', aviso_pendiente: encargo.background }
+      const cambios = { cerrado: Date.now(), error: 'interrumpido antes de correr' }
 
       if (transicion(encargo, 'fallido', cambios)) {
         abiertos().delete(hija)
-
-        if (encargo.background) {
-          await avisar({ ...encargo, ...cambios, estado: 'fallido' }, encargo.actor)
-        }
       }
     } else {
       await ctx.session.interrupt({ sessionID: hija })
 
-      // La transición a interrumpido y el aviso los hace cerrar(), a partir de session.execution.interrupted
+      // La transición a interrumpido la hace cerrar(), a partir de session.execution.interrupted
       for (let intento = 0; intento < 40 && isOpen(leer(encargo.id)); intento++) {
         await Bun.sleep(250)
       }
@@ -941,66 +712,9 @@ export function encargos(ctx: Ctx, config: Config) {
         log.error('aviso de estancado falló', { hija, error: String(error) })
       }
     }
-
-    for (const [hija, abierto] of abiertos()) {
-      if (abierto.estancado || ahora - abierto.actividad < PLAZO_ESTANCADO || permisoPendiente(hija)) {
-        continue
-      }
-
-      const encargo = leer(abierto.id)
-
-      if (encargo?.estado !== 'corriendo' || !transicion(encargo, 'estancado')) {
-        continue
-      }
-
-      abierto.estancado = true
-      log.warn('encargo estancado', { id: encargo.id, hija })
-      await avisar({ ...encargo, estado: 'estancado' }, encargo.actor)
-    }
   }
 
-  /** Al arrancar: cierra los encargos de procesos muertos y reenvía los avisos pendientes (al menos una vez). */
-  async function reconciliar() {
-    const filas = db()
-      .query("SELECT * FROM encargos WHERE estado IN ('en_cola', 'corriendo', 'estancado') OR aviso_pendiente = 1 ORDER BY id")
-      .all() as Encargo[]
-
-    for (const encargo of filas) {
-      if (vivo(encargo)) {
-        continue
-      } // Es de un proceso vivo, con su cola intacta (S15)
-
-      try {
-        if (isOpen(encargo)) {
-          // Desde otro proceso `wait` vuelve en el acto (S13): se mira el outcome, y solo si es posterior a `desde`
-          const cierreActual = encargo.estado === 'en_cola' ? undefined : await cierre(encargo).catch(() => undefined)
-          const estado = cierreActual?.estado ?? 'fallido'
-          const cambios = {
-            cerrado: Date.now(),
-            mensaje_final: cierreActual?.mensaje ?? null,
-            error: cierreActual ? (cierreActual.error ?? null) : 'perdido en reinicio',
-            aviso_pendiente: 1,
-          }
-
-          if (!transicion(encargo, estado, cambios)) {
-            continue
-          }
-
-          const cerrado = { ...encargo, ...cambios, estado }
-
-          log.info('encargo reconciliado', { id: encargo.id, hija: encargo.hija, estado, error: cambios.error })
-          await avisar(cerrado, cierreActual?.ultimoActor ?? encargo.actor)
-        } else {
-          log.info('aviso pendiente reenviado', { id: encargo.id, hija: encargo.hija, estado: encargo.estado })
-          await avisar(encargo, encargo.actor)
-        }
-      } catch (error) {
-        log.error('reconciliación falló', { id: encargo.id, error: String(error) })
-      }
-    }
-  }
-
-  return { delegar, interrumpir, bitacora, registrarLlamada, evento, vigilar, reconciliar }
+  return { delegar, interrumpir, bitacora, registrarLlamada, evento, vigilar }
 }
 
 const isOpen = (encargo: Encargo | null) =>

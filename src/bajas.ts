@@ -1,7 +1,6 @@
 import { etiqueta, modelRef, siguiente } from './actores.ts'
 import { type Actor, type Config, plazoMs } from './config.ts'
 import { db, write } from './db.ts'
-import { abiertos, moverCupo } from './encargos.ts'
 import { log } from './log.ts'
 import { proceso } from './process.ts'
 
@@ -262,13 +261,6 @@ export function suplencias(ctx: Plugin.Context, config: Config) {
     reintento.decision = { retry: true, delay: 0 }
     errores().delete(reintento.sessionID)
     fallos().delete(reintento.sessionID)
-    const encargo = abiertos().get(reintento.sessionID)
-    const proveedor = suplente.model.split('/')[0]!
-
-    if (encargo) {
-      moverCupo(encargo.id, proveedor, config.proveedores?.[proveedor]?.concurrencia ?? 3)
-    }
-
     const motivo = {
       cuota: 'cuota agotada',
       interno: `${config.fallosInternos ?? FALLOS_INTERNOS} fallos seguidos del proveedor`,
@@ -283,7 +275,6 @@ export function suplencias(ctx: Plugin.Context, config: Config) {
       de: claveModelo(actual),
       a: etiqueta(suplente),
       motivo,
-      encargo: encargo?.id,
     })
   }
 

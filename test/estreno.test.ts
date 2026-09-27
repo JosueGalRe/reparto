@@ -108,22 +108,16 @@ test('continuation: idle continues, background waits, interrupt blocks, unchange
   ).toEqual({ tipo: 'continuar', intentos: 1 })
 })
 
-test('two open background encargos suppress continuation until they close', () => {
-  // Given: real DB rows for a seeded plan and two open background children.
+test('native background children suppress continuation until they close', () => {
+  // Given: a seeded plan and two running native children (no encargo rows).
   const ref = { plan: `${plan}-bg`, hash: 'A' }
   const sesion = `ses_${crypto.randomUUID()}`
 
   escribirPendientes(db, clavePlan(ref), tareas(contenido))
 
-  for (const hija of ['one', 'two']) {
-    db.query(`INSERT INTO encargos (hija, padre, a, actor, background, estado, boot_id, pid, starttime, creado)
-    VALUES (?, ?, 'rapido', 'p/m', 1, 'corriendo', 'b', 1, '1', 0)`).run(`${sesion}-${hija}`, sesion)
-  }
-
   // When: the regidor goes idle; Then: it waits rather than prompting itself.
-  expect(decisionGuardada(db, sesion, ref, 'bg-1')?.decision.tipo).toBe('esperar')
-  db.query("UPDATE encargos SET estado = 'terminado' WHERE padre = ?").run(sesion)
-  expect(decisionGuardada(db, sesion, ref, 'bg-2')?.decision.tipo).toBe('continuar')
+  expect(decisionGuardada(db, sesion, ref, 'bg-1', 2)?.decision.tipo).toBe('esperar')
+  expect(decisionGuardada(db, sesion, ref, 'bg-2', 0)?.decision.tipo).toBe('continuar')
   expect(leerPendientes(db, clavePlan(ref))).toHaveLength(2)
 })
 
