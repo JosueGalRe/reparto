@@ -17,10 +17,11 @@ test("acepta JSONC con comentarios y comas finales", async () => {
   const result = await load(`{
     // director
     "agentes": { "director": { "titular": { "model": "claude-code/claude-opus-5-5", "variant": "high" }, "suplentes": [{ "model": "openai/gpt-5.5" },] } },
-    "papeles": { "rapido": { "titular": { "model": "opencode-go/kimi-k3", "variant": "max" } } },
+    "papeles": { "protagonista": { "titular": { "model": "opencode-go/kimi-k3", "variant": "max" } } },
     "proveedores": { "claude-code": { "concurrencia": 2, "plazoBaja": "5h" } },
   }`);
   expect(result).toHaveProperty("config.agentes.director.titular.variant", "high");
+  expect(result).toHaveProperty("config.papeles.protagonista.titular.variant", "max");
 });
 
 test("agentes acepta cualquier nombre (nativos o futuros); papeles no", async () => {

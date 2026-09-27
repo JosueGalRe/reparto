@@ -97,12 +97,12 @@ _Avoid_: quick
 Papel para todo cambio cuyo resultado se ve.
 _Avoid_: visual-engineering
 
-**Profundo** (`profundo`):
+**Protagonista** (`protagonista`):
 Papel por defecto para implementar: trabajo que exige entender el código antes de cambiarlo.
-_Avoid_: deep, deep-low
+_Avoid_: profundo, deep, deep-low
 
 **Estelar** (`estelar`):
-Papel al que se escala cuando profundo falla o vuelve con dudas, cuando oracle marca la tarea como difícil o cuando la corrección depende de invariantes.
+Papel al que se escala cuando protagonista falla o vuelve con dudas, cuando oracle marca la tarea como difícil o cuando la corrección depende de invariantes.
 _Avoid_: ultrabrain, deep-high
 
 **Prosa** (`prosa`):

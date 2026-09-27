@@ -30,7 +30,7 @@ const agentes: Record<string, string> = {
 const papeles: Record<string, string> = {
   quick: "rapido",
   "visual-engineering": "visual",
-  "deep-low": "profundo",
+  "deep-low": "protagonista",
   ultrabrain: "estelar",
   writing: "prosa",
 };

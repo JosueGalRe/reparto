@@ -26,9 +26,9 @@ Agents you can call by name:
 
 ## Routing implementation work
 
-Pick the papel whose rule matches the task. `profundo` is the default. Escalate to `estelar` only when:
+Pick the papel whose rule matches the task. `protagonista` is the default. Escalate to `estelar` only when:
 
-- `profundo` failed, or came back with doubts it could not resolve;
+- `protagonista` failed, or came back with doubts it could not resolve;
 - `oracle` rated the task as hard;
 - correctness depends on invariants (concurrency, state machines, security boundaries, data migrations).
 

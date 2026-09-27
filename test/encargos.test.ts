@@ -61,7 +61,7 @@ test("argumento clave de una tool call", () => {
 });
 
 test("título de encargo resume la primera línea no vacía y recorta a 60 caracteres", () => {
-  expect(tituloEncargo("profundo", `\n  ${"palabra ".repeat(10)}fin\nresto`)).toBe(`profundo · ${`${"palabra ".repeat(7)}palabra `.slice(0, 60)}…`);
+  expect(tituloEncargo("protagonista", `\n  ${"palabra ".repeat(10)}fin\nresto`)).toBe(`protagonista · ${`${"palabra ".repeat(7)}palabra `.slice(0, 60)}…`);
   expect(tituloEncargo("rapido", "\n  resumen corto  \nresto")).toBe("rapido · resumen corto");
 });
 

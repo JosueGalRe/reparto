@@ -3,7 +3,7 @@ import { Agent } from "@opencode/plugin";
 import type { AgentEditor } from "@opencode/plugin/promise/agent";
 import type { Validacion } from "./actores.ts";
 
-export const papeles = ["rapido", "visual", "profundo", "estelar", "prosa"] as const;
+export const papeles = ["rapido", "visual", "protagonista", "estelar", "prosa"] as const;
 /** Agentes con shell de lectura: solo el director. */
 export const conShellDeLectura = new Set(["director"]);
 
@@ -64,8 +64,8 @@ const descripciones: Record<string, string> = {
   oracle: "Read-only consultant for hard decisions: architecture, trade-offs, stubborn bugs.",
   rapido: "Papel for mechanical, bounded changes with no design decision.",
   visual: "Papel for changes whose result a person sees.",
-  profundo: "Default papel for implementation that needs understanding the code first.",
-  estelar: "Escalation papel: failed or doubtful profundo work, tasks oracle rates hard, invariant-dependent correctness.",
+  protagonista: "Default papel for implementation that needs understanding the code first.",
+  estelar: "Escalation papel: failed or doubtful protagonista work, tasks oracle rates hard, invariant-dependent correctness.",
   prosa: "Papel for deliverables that are text for people.",
 };
 

@@ -74,7 +74,7 @@ test("ruteo: un papel desactivado no aparece en la tabla, y las exclusiones se l
     desactivados: ["prosa"],
     desconocidos: [],
   });
-  expect(texto).toContain("| `profundo` |");
+  expect(texto).toContain("| `protagonista` |");
   expect(texto).not.toContain("| `prosa` |");
   expect(texto).toContain("Disabled papeles");
   expect(texto).toContain("opencode-go/qwen3.7-plus#off");

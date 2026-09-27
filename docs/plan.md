@@ -91,7 +91,7 @@ Va antes que el resto para que las rebanadas siguientes se prueben con la config
 
 - Se genera `reparto.jsonc` desde `~/dotfiles/omo/omo.jsonc`:
   - **Agentes**: sisyphus → director, explore → utilero, librarian → archivista, oracle → oracle, prometheus → dramaturgo, momus → critico, atlas → regidor. Los tres últimos se registran en la fase 2.
-  - **Categorías**: quick → rapido, visual-engineering → visual, deep-low → profundo, ultrabrain → estelar, writing → prosa.
+  - **Categorías**: quick → rapido, visual-engineering → visual, deep-low → protagonista, ultrabrain → estelar, writing → prosa.
   - `build` toma el reparto que hoy tiene sisyphus.
   - **Sin equivalente, no se migran**: `hephaestus`, `metis` (ADR 0011), `deep-high` (se funde en estelar, ADR 0007), `unspecified-low`, `unspecified-high`, `artistry` y el profile `cursor`.
   - `reasoning` pasa a `variant` crudo, verificado contra el catálogo (ADR 0002). No hay herencia: cada actor lleva el suyo o ninguno.
@@ -116,7 +116,7 @@ Va antes que el resto para que las rebanadas siguientes se prueben con la config
 - Se registran con `AgentEditor.update`, que crea el agente si no existe:
   - **director**: primario y agente por defecto con `AgentEditor.default`. Vale en la TUI y para las sesiones creadas sin agente; OpenChamber no lo usa y elige el agente guardado, después `plan` (S10).
   - **utilero**, **archivista**, **oracle**: subagentes de solo lectura, sin edición ni delegación y con shell abierto; solo el director tiene lista permitida de comandos.
-  - **rapido**, **visual**, **profundo**, **estelar**, **prosa**: subagentes.
+  - **rapido**, **visual**, **protagonista**, **estelar**, **prosa**: subagentes.
   - **build**: queda nativo, con el reparto de `agentes.build`.
 - Permisos:
   - **director**: sin `edit`, `write` ni `patch`; sin `subagent`; sin las tools de PTY (`pty_*`) ni ninguna otra tool con efectos que cargue otro plugin; `shell` negado con `*` y permitido solo para la lista de lectura (`rg *`, `git status*`, `git diff` y `git diff *`, `git ls-files*`, `git log*`, `git show*`, y `head *`, para que `rg x | head` pase). V2 oculta las tools negadas pero no los comandos, así que solo el guion del director lista los comandos permitidos. `git diff *` lleva el espacio para no dejar pasar `git difftool --extcmd=…`. V2 exige que cada tramo de `;`, `&&`, `|` y `$( )` esté en la lista, y oculta al modelo las tools negadas (S7). Lo que V2 no cubre lo niega un hook `ctx.permission.hook("evaluate")`: un tramo con `>`, `<` (incluye `<(`), backticks, un salto de línea, `--output`, `--ext-diff`, `--textconv`, `--pre` o `--pre-glob`. Los backticks, los saltos de línea y `<(` no se probaron en S7; se niegan por las dudas. El hook solo recibe lo que las reglas permiten, así que sirve para negar, no para permitir. Un driver de diff configurado en git se ejecutaría igual: la frontera es de conducta, no un sandbox (ADR 0006), y hoy tu gitconfig no define ninguno.
@@ -193,7 +193,7 @@ Va antes que el resto para que las rebanadas siguientes se prueben con la config
 - Si el cambio es un encargo y el suplente es de otro proveedor, el cupo pasa de la cola del proveedor viejo a la del nuevo. Si la del nuevo está llena, el encargo la excede igual y queda en el log: esperar un cupo dentro de `retry` podría trabarse con cambios cruzados. `// ponytail: exceso por suplencia; cola estricta si provoca 429 propios`.
 - El titular vuelve en las sesiones nuevas, y en el director al empezar tu siguiente turno: el hook `prompt` hace `switchModel`, que afecta a ese mismo turno (S8). Una sesión de papel conserva su actor hasta terminar. Qué actor impuso reparto en cada sesión primaria, y con qué estado de bajas, se guarda en `ctx.storage` y no en memoria, para que una recarga del plugin o un reinicio no lo tome como primer turno (1.5).
 - **Escenarios:**
-  - Con una baja de `openai` insertada en SQLite, un encargo a `profundo` corre con su suplente y la sesión lo avisa.
+  - Con una baja de `openai` insertada en SQLite, un encargo a `protagonista` corre con su suplente y la sesión lo avisa.
   - Con una request forzada a fallar por cuota, en una sesión viva, entra el suplente sin que tengas que reescribir el mensaje, y el padre no recibe un aviso `fallido`.
   - Con todos los actores de un papel de baja, el encargo termina en `fallido` y el padre recibe ese aviso.
   - Titular y primer suplente fallan por cuota seguidos: el encargo termina con el segundo suplente, en la misma ejecución y sin aviso intermedio.

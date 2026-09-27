@@ -26,7 +26,7 @@
       "properties": {
         "rapido": { "$ref": "#/$defs/reparto" },
         "visual": { "$ref": "#/$defs/reparto" },
-        "profundo": { "$ref": "#/$defs/reparto" },
+        "protagonista": { "$ref": "#/$defs/reparto" },
         "estelar": { "$ref": "#/$defs/reparto" },
         "prosa": { "$ref": "#/$defs/reparto" }
       }
