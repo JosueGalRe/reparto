@@ -84,8 +84,8 @@ _Avoid_: explore
 Agente que busca documentación y código fuera del repo.
 _Avoid_: librarian
 
-**Oracle** (`oracle`):
-Agente de consulta, de solo lectura, para decisiones difíciles.
+**Tiresias** (`tiresias`):
+Agente de consulta, de solo lectura, para decisiones difíciles (antes `oracle`).
 
 ### Papeles
 
@@ -102,7 +102,7 @@ Papel por defecto para implementar: trabajo que exige entender el código antes 
 _Avoid_: profundo, deep, deep-low
 
 **Estelar** (`estelar`):
-Papel al que se escala cuando protagonista falla o vuelve con dudas, cuando oracle marca la tarea como difícil o cuando la corrección depende de invariantes.
+Papel al que se escala cuando protagonista falla o vuelve con dudas, cuando tiresias marca la tarea como difícil o cuando la corrección depende de invariantes.
 _Avoid_: ultrabrain, deep-high
 
 **Prosa** (`prosa`):
@@ -116,7 +116,7 @@ Documento del dramaturgo con las tareas que ejecuta el regidor.
 _Avoid_: boulder, spec
 
 **Ensayo general**:
-Revisión en paralelo de un plan por el crítico y oracle en proveedores distintos, repetida en rondas hasta que ambos aprueban la misma versión.
+Revisión en paralelo de un plan por el crítico y tiresias en proveedores distintos, repetida en rondas hasta que ambos aprueban la misma versión.
 _Avoid_: review loop
 
 **Objeción**:

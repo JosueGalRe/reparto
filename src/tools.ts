@@ -32,7 +32,7 @@ export async function registrarTools(
     editor.add({
       name: 'ensayar',
       description:
-        'Run one synchronous round of the ensayo general on a plan under .reparto/planes/. Fresh parallel critico and oracle encargos; returns verdicts and the acta.',
+        'Run one synchronous round of the ensayo general on a plan under .reparto/planes/. Fresh parallel critico and tiresias encargos; returns verdicts and the acta.',
       input: {
         type: 'object',
         properties: { plan: { type: 'string', description: 'Relative plan path under .reparto/planes/.' } },

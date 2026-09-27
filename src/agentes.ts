@@ -63,12 +63,12 @@ function soloLectura(base: Rule[], extra: string[]): Rule[] {
 function dramaturgo(base: Rule[]): Rule[] {
   return [
     ...soloLectura(base, ['question', 'bitacora', 'ensayar']),
-    ...['utilero', 'archivista', 'oracle'].map((resource) => ({ action: 'subagent', resource, effect: 'allow' as const })),
+    ...['utilero', 'archivista', 'tiresias'].map((resource) => ({ action: 'subagent', resource, effect: 'allow' as const })),
     ...['edit', 'write', 'patch'].map((action) => ({ action, resource: '.reparto/planes/*', effect: 'allow' as const })),
   ]
 }
 
-const subagentesDeReparto = ['utilero', 'archivista', 'oracle', ...papeles].map((resource) => ({
+const subagentesDeReparto = ['utilero', 'archivista', 'tiresias', ...papeles].map((resource) => ({
   action: 'subagent',
   resource,
   effect: 'allow' as const,
@@ -115,13 +115,14 @@ const descripciones: Record<string, string> = {
   dramaturgo: 'Interviews Bryan and writes scoped, verifiable plans in .reparto/planes/ only.',
   utilero: 'Explores this repository and reports where things are. Read-only.',
   archivista: 'Finds documentation and code outside the repository. Read-only.',
-  oracle: 'Read-only consultant for hard decisions: architecture, trade-offs, stubborn bugs.',
+  tiresias: 'Read-only consultant for hard decisions: architecture, trade-offs, stubborn bugs.',
   critico: 'Read-only reviewer of plans in the ensayo general.',
   regidor: 'Executes an estrenado plan through delegation and verifies each task without editing.',
   rapido: 'Papel for mechanical, bounded changes with no design decision.',
   visual: 'Papel for changes whose result a person sees.',
   protagonista: 'Default papel for implementation that needs understanding the code first.',
-  estelar: 'Escalation papel: failed or doubtful protagonista work, tasks oracle rates hard, invariant-dependent correctness.',
+  estelar:
+    'Escalation papel: failed or doubtful protagonista work, tasks tiresias rates hard, invariant-dependent correctness.',
   prosa: 'Papel for deliverables that are text for people.',
 }
 
@@ -142,7 +143,7 @@ export function registrar(editor: AgentEditor) {
   definir('regidor', 'primary', `${guion('regidor')}\n\n${seccionShell}`, reglas.regidor)
   definir('dramaturgo', 'primary', `${guion('dramaturgo')}\n\n${seccionShell}`, reglas.dramaturgo)
 
-  for (const id of ['utilero', 'oracle', 'critico']) {
+  for (const id of ['utilero', 'tiresias', 'critico']) {
     definir(id, 'subagent', guion(id), reglas.subagenteLectura)
   }
 

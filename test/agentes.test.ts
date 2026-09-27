@@ -133,7 +133,7 @@ test('director y regidor limitan subagent a agentes de reparto; dramaturgo solo 
 
   // When: the native tool checks its destination; Then: reparto targets pass and native agents do not.
   for (const rules of [director, regidor]) {
-    for (const agente of ['rapido', 'protagonista', 'utilero', 'oracle']) {
+    for (const agente of ['rapido', 'protagonista', 'utilero', 'tiresias']) {
       expect(effect(rules, 'subagent', agente)).toBe('allow')
     }
 
@@ -144,7 +144,7 @@ test('director y regidor limitan subagent a agentes de reparto; dramaturgo solo 
     expect(effect(rules, 'delegar', '*')).toBe('deny')
   }
 
-  for (const agent of ['utilero', 'archivista', 'oracle']) {
+  for (const agent of ['utilero', 'archivista', 'tiresias']) {
     expect(effect(dramaturgo, 'subagent', agent)).toBe('allow')
   }
 

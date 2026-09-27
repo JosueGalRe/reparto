@@ -31,7 +31,7 @@ beforeEach(() => {
   proceso.validacion = {
     actores: new Map([
       ['critico', [{ model: 'openai/titular' }, actor]],
-      ['oracle', [{ model: 'anthropic/oracle' }]],
+      ['tiresias', [{ model: 'anthropic/revisor' }]],
     ]),
     exclusiones: [],
     desactivados: [],

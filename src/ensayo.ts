@@ -173,15 +173,15 @@ export function elegirRevisores(
   validacion: Validacion,
   dramaturgo: string | undefined,
   fuera: (actor: Actor) => boolean,
-): { critico: Actor; oracle: Actor; repetidos: boolean } | undefined {
+): { critico: Actor; tiresias: Actor; repetidos: boolean } | undefined {
   const criticos = (validacion.actores.get('critico') ?? []).filter((actor) => !fuera(actor))
-  const oracles = (validacion.actores.get('oracle') ?? []).filter((actor) => !fuera(actor))
-  const pares = criticos.flatMap((critico) => oracles.map((oracle) => ({ critico, oracle })))
+  const tiresiasDisponibles = (validacion.actores.get('tiresias') ?? []).filter((actor) => !fuera(actor))
+  const pares = criticos.flatMap((critico) => tiresiasDisponibles.map((tiresias) => ({ critico, tiresias })))
   const distinto = pares.find(
-    ({ critico, oracle }) =>
-      proveedor(critico) !== dramaturgo && proveedor(oracle) !== dramaturgo && proveedor(critico) !== proveedor(oracle),
+    ({ critico, tiresias }) =>
+      proveedor(critico) !== dramaturgo && proveedor(tiresias) !== dramaturgo && proveedor(critico) !== proveedor(tiresias),
   )
-  const elegido = distinto ?? pares.find(({ critico, oracle }) => proveedor(critico) !== proveedor(oracle)) ?? pares[0]
+  const elegido = distinto ?? pares.find(({ critico, tiresias }) => proveedor(critico) !== proveedor(tiresias)) ?? pares[0]
 
   return elegido && { ...elegido, repetidos: !distinto }
 }
@@ -382,7 +382,7 @@ export function ensayo(
     const actores = elegirRevisores(validacion, padre.model?.providerID, deBaja(bajasVigentes(database)))
 
     if (!actores) {
-      throw new Error('ensayar: crítico u oracle sin actores disponibles')
+      throw new Error('ensayar: crítico o tiresias sin actores disponibles')
     }
 
     const prevHash = database
@@ -409,7 +409,7 @@ export function ensayo(
 
         for (const [revisor, actor] of [
           ['critico', actores.critico],
-          ['oracle', actores.oracle],
+          ['tiresias', actores.tiresias],
         ] as const) {
           database
             .query(`INSERT INTO ensayos (plan, ronda, hash, revisor, actor, veredicto) VALUES ($plan, $ronda, $hash, $revisor, $actor, 'pendiente')
@@ -429,7 +429,7 @@ export function ensayo(
         : `Closure round ${ronda}. Diff from previous snapshot:\n${diferencia(previo?.contenido ?? '', version.contenido)}\n\nActa:\n${JSON.stringify(acta)}`
     const prompt = `${contexto}\n\nPlan snapshot (review this exact text):\n${version.contenido}\n\nOutput format: VEREDICTO: APROBADO or VEREDICTO: OBJECIONES; OBJECION: section | concrete defect | cause | closing condition (and round-1 justification for new closure-round objections); ACTA: numeric-id | cerrado/abierto for each acta entry; NOTA: observation.`
     const resultados = await Promise.allSettled(
-      (['critico', 'oracle'] as const).map(async (revisor) => {
+      (['critico', 'tiresias'] as const).map(async (revisor) => {
         const hija = await encargos.delegar({ revisor, prompt }, tool, actores[revisor])
         const fila = database
           .query<Encargo, { hija: string }>('SELECT * FROM encargos WHERE hija = $hija ORDER BY id DESC LIMIT 1')

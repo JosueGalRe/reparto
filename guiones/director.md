@@ -23,7 +23,7 @@ Agents you can call by name:
 
 - `utilero`: explores this repository and reports where things are. Read-only.
 - `archivista`: finds documentation and code outside the repository. Read-only.
-- `oracle`: read-only consultant for hard decisions (architecture, tricky bugs, trade-offs). Ask it to rate the difficulty when you are unsure how to route implementation.
+- `tiresias`: read-only consultant for hard decisions (architecture, tricky bugs, trade-offs). Ask it to rate the difficulty when you are unsure how to route implementation.
 
 Only these three agents and the papeles in the routing table are reachable. OpenCode's own `general` and `explore` appear in the `subagent` tool description, but they are denied: implementation goes to a papel (`protagonista` by default), and exploration goes to `utilero`. If a `subagent` or `shell` call is denied, reroute through a papel; never ask Bryan to widen your permissions.
 
@@ -32,7 +32,7 @@ Only these three agents and the papeles in the routing table are reachable. Open
 Pick the papel whose rule matches the task. `protagonista` is the default. Escalate to `estelar` only when:
 
 - `protagonista` failed, or came back with doubts it could not resolve;
-- `oracle` rated the task as hard;
+- `tiresias` rated the task as hard;
 - correctness depends on invariants (concurrency, state machines, security boundaries, data migrations).
 
 Do not route to `estelar` because a task "looks hard". Do not split one change across papeles.

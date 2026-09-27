@@ -5,7 +5,7 @@ import type { Catalog } from './catalog.ts'
 import type { Actor, Config } from './config.ts'
 
 /** Agentes que registra reparto; el resto de `agentes` tiene que existir en V2 (nativos como `build`). */
-export const agentesPropios = new Set(['director', 'utilero', 'archivista', 'oracle', 'dramaturgo', 'critico', 'regidor'])
+export const agentesPropios = new Set(['director', 'utilero', 'archivista', 'tiresias', 'dramaturgo', 'critico', 'regidor'])
 
 export interface Exclusion {
   nombre: string

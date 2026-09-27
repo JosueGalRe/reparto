@@ -17,7 +17,7 @@ const debug = !!process.env.REPARTO_DEBUG
 
 /** Primarios cuyo actor impone reparto en el hook `prompt`: el servidor no aplica `agent.model` (S10). */
 const primarios = new Set(['director', 'dramaturgo', 'regidor', 'build'])
-const hijos = new Set(['utilero', 'archivista', 'oracle', 'critico', ...papeles])
+const hijos = new Set(['utilero', 'archivista', 'tiresias', 'critico', ...papeles])
 
 export async function imponerHija(ctx: ContextoHija, sessionID: string) {
   const sesion = await ctx.session.get({ sessionID })

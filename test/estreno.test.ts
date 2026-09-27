@@ -25,7 +25,7 @@ const contenido = '## Tasks\n\n### T1: first\n- Do: a\n\n### T2: second\n- Do: b
 const verdict = JSON.stringify({ veredicto: 'APROBADO', objeciones: [], notas: [], cierres: {} })
 
 function ensayado(nombre: string, hash: string, ronda: number, veredicto = verdict) {
-  for (const revisor of ['critico', 'oracle']) {
+  for (const revisor of ['critico', 'tiresias']) {
     db.query("INSERT INTO ensayos (plan, ronda, hash, revisor, actor, veredicto) VALUES (?, ?, ?, ?, 'p/m', ?)").run(
       nombre,
       ronda,
@@ -196,7 +196,7 @@ test('estreno falla si falta la fila insertada antes de devolverla', () => {
   const database = openDb(join(dir, 'estreno-sin-fila.db'))
 
   try {
-    for (const revisor of ['critico', 'oracle']) {
+    for (const revisor of ['critico', 'tiresias']) {
       database
         .query(
           "INSERT INTO ensayos (plan, ronda, hash, revisor, actor, veredicto) VALUES ('plan-sin-fila', 1, 'A', ?, 'p/m', ?)",

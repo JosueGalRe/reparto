@@ -51,7 +51,7 @@ test('ensayo rechaza la aprobación guardada corrupta antes de cerrar o relanzar
   proceso.db = database
 
   try {
-    for (const revisor of ['critico', 'oracle']) {
+    for (const revisor of ['critico', 'tiresias']) {
       database
         .query('INSERT INTO ensayos VALUES (?, 1, ?, ?, ?, ?)')
         .run(
@@ -122,7 +122,7 @@ test('a malformed reviewer leaves the round pending and relaunches fresh encargo
   proceso.validacion = {
     actores: new Map([
       ['critico', [{ model: 'kimi-code-plan-global/k3' }]],
-      ['oracle', [{ model: 'claude-code/haiku' }]],
+      ['tiresias', [{ model: 'claude-code/haiku' }]],
     ]),
     exclusiones: [],
     desactivados: [],
@@ -162,11 +162,11 @@ test('a malformed reviewer leaves the round pending and relaunches fresh encargo
 })
 
 test('selects distinct available providers, or marks repeated providers after bajas', () => {
-  // Given: the dramaturgo uses openai, and oracle has one alternate provider.
+  // Given: the dramaturgo uses openai, and tiresias has one alternate provider.
   const validacion: Validacion = {
     actores: new Map([
       ['critico', [{ model: 'openai/cheap' }, { model: 'kimi-code-plan-global/cheap' }]],
-      ['oracle', [{ model: 'openai/other' }, { model: 'opencode-go/cheap' }]],
+      ['tiresias', [{ model: 'openai/other' }, { model: 'opencode-go/cheap' }]],
     ]),
     exclusiones: [],
     desactivados: [],
@@ -176,13 +176,13 @@ test('selects distinct available providers, or marks repeated providers after ba
   // When: all actors are available; Then: neither reviewer shares the dramaturgo's provider.
   expect(elegirRevisores(validacion, 'openai', () => false)).toEqual({
     critico: { model: 'kimi-code-plan-global/cheap' },
-    oracle: { model: 'opencode-go/cheap' },
+    tiresias: { model: 'opencode-go/cheap' },
     repetidos: false,
   })
   // Even if one reviewer must share the dramaturgo's provider, keep the reviewers distinct.
   expect(elegirRevisores(validacion, 'openai', (actor) => actor.model.startsWith('kimi-code-plan-global/'))).toEqual({
     critico: { model: 'openai/cheap' },
-    oracle: { model: 'opencode-go/cheap' },
+    tiresias: { model: 'opencode-go/cheap' },
     repetidos: true,
   })
   // When: both alternate providers are down; Then: the round still runs, explicitly marked.

@@ -18,7 +18,7 @@
         "build": { "$ref": "#/$defs/reparto" },
         "utilero": { "$ref": "#/$defs/reparto" },
         "archivista": { "$ref": "#/$defs/reparto" },
-        "oracle": { "$ref": "#/$defs/reparto" },
+        "tiresias": { "$ref": "#/$defs/reparto" },
         "dramaturgo": { "$ref": "#/$defs/reparto" },
         "critico": { "$ref": "#/$defs/reparto" },
         "regidor": { "$ref": "#/$defs/reparto" }

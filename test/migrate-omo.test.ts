@@ -86,4 +86,5 @@ test('la migración no genera concurrencia del OMO', () => {
 
   // Then: el resultado no arrastra proveedores sin configuración vigente.
   expect(migrated).not.toHaveProperty('proveedores')
+  expect(migrated).toHaveProperty('agentes.tiresias')
 })

@@ -20,7 +20,7 @@ const permitidas: Record<EstadoEncargo, readonly EstadoEncargo[]> = {
 }
 
 /** El mecanismo interno de ensayar solo invoca a sus dos revisores. */
-const revisoresPermitidos = new Set<string>(['critico', 'oracle'])
+const revisoresPermitidos = new Set<string>(['critico', 'tiresias'])
 
 const PLAZO_ESTANCADO = 30 * 60_000
 const TOPE_MENSAJE_FINAL = 32_000

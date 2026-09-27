@@ -23,7 +23,7 @@ const agentes: Record<string, string> = {
   sisyphus: 'director',
   explore: 'utilero',
   librarian: 'archivista',
-  oracle: 'oracle',
+  oracle: 'tiresias',
   prometheus: 'dramaturgo',
   momus: 'critico',
   atlas: 'regidor',
