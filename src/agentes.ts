@@ -4,8 +4,8 @@ import type { AgentEditor } from "@opencode/plugin/promise/agent";
 import type { Validacion } from "./actores.ts";
 
 export const papeles = ["rapido", "visual", "profundo", "estelar", "prosa"] as const;
-/** Agentes con shell de lectura: el director y los subagentes de solo lectura. */
-export const conShellDeLectura = new Set(["director", "utilero", "archivista", "oracle"]);
+/** Agentes con shell de lectura: solo el director. */
+export const conShellDeLectura = new Set(["director"]);
 
 const guion = (nombre: string) => readFileSync(new URL(`../guiones/${nombre}.md`, import.meta.url), "utf8").trim();
 
@@ -15,7 +15,7 @@ const deny = (...actions: string[]): Rule[] => actions.map((action) => ({ action
 
 // `git diff *` lleva el espacio para no dejar pasar `git difftool`. `head *` deja pasar `rg x | head`:
 // V2 exige que cada tramo de `;`, `&&`, `|` y `$( )` esté permitido (S7). V2 oculta las tools negadas pero no
-// los comandos: el guion de cada agente de lectura lleva esta misma lista (`seccionShell`).
+// los comandos: el guion del director lleva esta misma lista (`seccionShell`).
 export const comandosDeLectura = ["rg *", "git status*", "git diff", "git diff *", "git ls-files*", "git log*", "git show*", "head *"];
 // ponytail: acoplado al plugin vendor/rtk.ts; cuando el shim exponga el agente, rtk debe omitir los de solo lectura.
 const shellDeLectura: Rule[] = [...comandosDeLectura, ...comandosDeLectura.filter((c) => c !== "head *").map((c) => `rtk ${c}`)].map((resource) => ({
@@ -34,6 +34,11 @@ function soloLectura(base: Rule[], extra: string[]): Rule[] {
   return [...base, ...deny("*"), ...allow("read", "glob", "grep", "skill", "webfetch", "websearch", ...extra), ...shellDeLectura, ...restricciones];
 }
 
+function subagenteSoloLectura(base: Rule[]): Rule[] {
+  const restricciones = base.filter((rule) => rule.action === "read" || rule.action === "external_directory");
+  return [...base, ...deny("*"), ...allow("read", "glob", "grep", "skill", "webfetch", "websearch", "shell"), ...restricciones];
+}
+
 /** Se agrega al guion de los agentes con shell de lectura: V2 no les muestra qué comandos están permitidos. */
 export const seccionShell = [
   "## Shell",
@@ -46,7 +51,7 @@ export const seccionShell = [
 export function permisos(base: Rule[]) {
   return {
     director: soloLectura(base, ["question", "delegar", "interrumpir", "bitacora", "pendientes"]),
-    lectura: soloLectura(base, []),
+    subagenteLectura: subagenteSoloLectura(base),
     // Papeles y subagentes no delegan: un encargo nunca espera a otro dentro de la misma cola.
     papel: [...base, ...deny("question", "subagent", "delegar")],
   };
@@ -78,7 +83,7 @@ export function registrar(editor: AgentEditor) {
     });
 
   definir("director", "primary", `${guion("director")}\n\n${seccionShell}`, reglas.director);
-  for (const id of ["utilero", "archivista", "oracle"]) definir(id, "subagent", `${guion(id)}\n\n${seccionShell}`, reglas.lectura);
+  for (const id of ["utilero", "archivista", "oracle"]) definir(id, "subagent", guion(id), reglas.subagenteLectura);
   // Los papeles no se invocan por nombre (no son agentes): se ocultan del `@`.
   for (const id of papeles) definir(id, "subagent", `${guion("papel")}\n\n${guion(id)}`, reglas.papel, true);
   editor.update("build", (agent) => {

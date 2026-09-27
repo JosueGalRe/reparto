@@ -50,6 +50,21 @@ test("director: permite solo los comandos de lectura reescritos por rtk", () => 
   expect(efecto("head -1")).toBe("allow"); // el otro tramo de `rtk rg x | head -1`
   expect(efecto("rtk read x")).toBe("deny");
   expect(efecto("rtk curl https://example.com")).toBe("deny");
+  expect(efecto("ls -la")).toBe("deny");
+  expect(efecto("rg x > f")).toBe("allow");
+  expect(motivoNegado("rg x > f")).toBe("redirección");
+});
+
+test("utilero: shell abierto, edición y delegación negadas", () => {
+  const reglas = permisos([]).subagenteLectura;
+  const efecto = (action: string, resource: string) =>
+    reglas.findLast((rule) =>
+      (rule.action === action || rule.action === "*") &&
+      (rule.resource === "*" || rule.resource === resource || (rule.resource.endsWith("*") && resource.startsWith(rule.resource.slice(0, -1)))),
+    )?.effect;
+
+  for (const command of ["ls -la", "jq . f", "sqlite3 -readonly db 'select 1'"]) expect(efecto("shell", command)).toBe("allow");
+  for (const tool of ["edit", "write", "patch", "subagent", "delegar", "interrumpir"]) expect(efecto(tool, "*")).toBe("deny");
 });
 
 test("ruteo: un papel desactivado no aparece en la tabla, y las exclusiones se listan", () => {
