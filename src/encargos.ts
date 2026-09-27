@@ -8,6 +8,7 @@ import { esRegistro } from './validation-utils.ts'
 
 import type { Actor } from './config.ts'
 import type { Cambios, ContextoEncargos, Encargo, EntradaRevisor, EstadoEncargo } from './encargos-types.ts'
+import type { Evento } from './hooks-types.ts'
 
 const permitidas: Record<EstadoEncargo, readonly EstadoEncargo[]> = {
   en_cola: ['corriendo', 'fallido'],
@@ -358,19 +359,10 @@ export function encargos(ctx: ContextoEncargos) {
   }
 
   /** Eventos de todas las locations del proceso (S15); los session.execution.* no traen location (S13). */
-  async function evento(ev: { type: string; created?: number; data?: unknown }) {
-    const data = ev.data as
-      | {
-          sessionID?: string
-          id?: string
-          requestID?: string
-          action?: string
-          resources?: string[]
-          error?: { message?: string }
-        }
-      | undefined
-    const abierto = data?.sessionID ? abiertos().get(data.sessionID) : undefined
-    const nativo = data?.sessionID ? hijasNativas().get(data.sessionID) : undefined
+  async function evento(ev: Evento) {
+    const sessionID = ev.data && 'sessionID' in ev.data && typeof ev.data.sessionID === 'string' ? ev.data.sessionID : undefined
+    const abierto = sessionID ? abiertos().get(sessionID) : undefined
+    const nativo = sessionID ? hijasNativas().get(sessionID) : undefined
 
     if (nativo && posterior(ev.created, nativo.desde)) {
       if (
@@ -378,7 +370,7 @@ export function encargos(ctx: ContextoEncargos) {
         ev.type === 'session.execution.failed' ||
         ev.type === 'session.execution.interrupted'
       ) {
-        const hija = data?.sessionID
+        const hija = sessionID
 
         if (hija) {
           hijasNativas().delete(hija)
@@ -399,10 +391,10 @@ export function encargos(ctx: ContextoEncargos) {
             log.error('mensaje final de hija falló', { hija, error: String(error) })
           }
         }
-      } else if (ev.type === 'permission.asked' && data?.id) {
-        nativo.permisos.add(data.id)
-      } else if (ev.type === 'permission.replied' && data?.requestID) {
-        nativo.permisos.delete(data.requestID)
+      } else if (ev.type === 'permission.asked' && ev.data.id) {
+        nativo.permisos.add(ev.data.id)
+      } else if (ev.type === 'permission.replied' && ev.data.requestID) {
+        nativo.permisos.delete(ev.data.requestID)
         nativo.actividad = Date.now()
       } else if (/^session\.(step|tool|text|reasoning)\./.test(ev.type)) {
         nativo.actividad = Date.now()
@@ -419,19 +411,22 @@ export function encargos(ctx: ContextoEncargos) {
       ev.type === 'session.execution.failed' ||
       ev.type === 'session.execution.interrupted'
     ) {
-      void cerrar(abierto.id, { created: ev.created ?? Date.now(), error: data?.error?.message })
+      void cerrar(abierto.id, {
+        created: ev.created ?? Date.now(),
+        error: ev.type === 'session.execution.failed' ? ev.data.error?.message : undefined,
+      })
 
       return
     }
 
-    if (ev.type === 'permission.asked' && data?.id && data.action && data.resources && data.sessionID) {
+    if (ev.type === 'permission.asked' && ev.data.id && ev.data.action && ev.data.resources && sessionID) {
       const encargo = leerEncargo(abierto.id)
 
       if (!encargo || !estaAbierto(encargo)) {
         return
       }
 
-      const { id, action, resources, sessionID } = data
+      const { id, action, resources } = ev.data
 
       if (registrarPermiso({ id, action, resources, sessionID })) {
         void (async () => {

@@ -327,7 +327,7 @@ test('two plugin instances handling one event send one prompt', async () => {
 
   try {
     // When: both see the same id; Then: the event creates just one continuation prompt.
-    const event = { id: 'event-handlers', type: 'session.execution.succeeded', data: { sessionID: 'ses_handlers' } }
+    const event = { id: 'event-handlers', type: 'session.execution.succeeded' as const, data: { sessionID: 'ses_handlers' } }
 
     await Promise.all([continuacion(ctx).evento(event), continuacion(ctx).evento(event)])
     expect(prompts).toHaveLength(1)

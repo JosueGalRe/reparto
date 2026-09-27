@@ -198,7 +198,7 @@ test('el permiso del revisor avisa a su padre una sola vez aunque se repitan eve
   const pendiente = ejecutar.delegar({ revisor: 'critico', prompt: 'Revisa' }, tool, actor)
   const hija = await esperando.promise
   const evento = {
-    type: 'permission.asked',
+    type: 'permission.asked' as const,
     data: { sessionID: hija, id: 'per_revisor', action: 'read', resources: ['plan.md'] },
   }
 

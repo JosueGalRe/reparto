@@ -4,10 +4,11 @@ import { log } from './log.ts'
 import { type Item, leerPendientes } from './pendientes.ts'
 import { hijasNativas } from './process.ts'
 
+import type { Evento } from './hooks-types.ts'
 import type { Plugin } from '@opencode/plugin'
 import type { Database } from 'bun:sqlite'
 
-interface Estado {
+interface EstadoContinuacion {
   readonly firma: string | null
   readonly intentos: number
   readonly interrumpido: number
@@ -18,7 +19,7 @@ export interface Decision {
   readonly intentos?: number
 }
 
-export function decidirContinuacion(items: readonly Item[], background: number, estado: Estado): Decision {
+export function decidirContinuacion(items: readonly Item[], hijasActivas: number, estado: EstadoContinuacion): Decision {
   const pendientes = items.filter((item) => item.estado !== 'hecho')
 
   if (!pendientes.length) {
@@ -29,7 +30,7 @@ export function decidirContinuacion(items: readonly Item[], background: number, 
     return { tipo: 'interrumpido' }
   }
 
-  if (background) {
+  if (hijasActivas) {
     return { tipo: 'esperar' }
   }
 
@@ -45,7 +46,7 @@ export function decisionGuardada(
   sesion: string,
   ref: ReferenciaPlan,
   eventId: string,
-  background = 0,
+  hijasActivas = 0,
 ): { decision: Decision; items: Item[] } | undefined {
   const clave = clavePlan(ref)
 
@@ -58,7 +59,7 @@ export function decisionGuardada(
 
     database.query('INSERT OR IGNORE INTO continuaciones (sesion, clave) VALUES ($sesion, $clave)').run({ sesion, clave })
     const estado = database
-      .query<Estado, { sesion: string }>(
+      .query<EstadoContinuacion, { sesion: string }>(
         'SELECT firma, intentos, interrumpido, detenido FROM continuaciones WHERE sesion = $sesion',
       )
       .get({ sesion })
@@ -68,7 +69,7 @@ export function decisionGuardada(
     }
 
     const items = leerPendientes(database, clave)
-    const decision = decidirContinuacion(items, background, estado)
+    const decision = decidirContinuacion(items, hijasActivas, estado)
 
     if (decision.tipo === 'continuar') {
       database
@@ -103,12 +104,12 @@ export function continuacion(ctx: Plugin.Context) {
     )
   }
 
-  async function evento(ev: { id: string; type: string; data?: unknown }) {
+  async function evento(ev: Evento & { readonly id: string }) {
     if (ev.type !== 'session.execution.succeeded' && ev.type !== 'session.execution.interrupted') {
       return
     }
 
-    const { sessionID } = (ev.data as { sessionID?: string } | undefined) ?? {}
+    const { sessionID } = ev.data
 
     if (!sessionID) {
       return
@@ -133,8 +134,8 @@ export function continuacion(ctx: Plugin.Context) {
         return
       }
 
-      const background = [...hijasNativas().values()].filter((hija) => hija.padre === sessionID).length
-      const actual = decisionGuardada(db(), sessionID, ref, ev.id, background)
+      const hijasActivas = [...hijasNativas().values()].filter((hija) => hija.padre === sessionID).length
+      const actual = decisionGuardada(db(), sessionID, ref, ev.id, hijasActivas)
 
       if (!actual) {
         return
