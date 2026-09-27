@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDb } from "../src/db.ts";
-import { argumentoClave, leer, posterior, transicion, vivo, yo } from "../src/encargos.ts";
+import { argumentoClave, leer, posterior, tituloEncargo, transicion, vivo, yo } from "../src/encargos.ts";
 import { proceso } from "../src/process.ts";
 
 const dir = mkdtempSync(join(tmpdir(), "reparto-encargos-"));
@@ -58,4 +58,9 @@ test("argumento clave de una tool call", () => {
   expect(argumentoClave(JSON.stringify({ filePath: "/a/b.ts", limit: 3 }))).toBe("filePath=/a/b.ts");
   expect(argumentoClave(JSON.stringify({ command: "rg x\n| head" }))).toBe("command=rg x | head");
   expect(argumentoClave(JSON.stringify({ n: 1 }))).toBe("");
+});
+
+test("título de encargo resume la primera línea no vacía y recorta a 60 caracteres", () => {
+  expect(tituloEncargo("profundo", `\n  ${"palabra ".repeat(10)}fin\nresto`)).toBe(`profundo · ${`${"palabra ".repeat(7)}palabra `.slice(0, 60)}…`);
+  expect(tituloEncargo("rapido", "\n  resumen corto  \nresto")).toBe("rapido · resumen corto");
 });

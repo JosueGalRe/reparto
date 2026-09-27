@@ -49,6 +49,11 @@ const CONCURRENCIA = 3;
 
 const recortar = (texto: string, tope: number) => (texto.length > tope ? `${texto.slice(0, tope)}\n[… recortado, ${texto.length - tope} caracteres más]` : texto);
 
+export function tituloEncargo(a: string, prompt: string): string {
+  const resumen = (prompt.split("\n").find((linea) => linea.trim()) ?? "").trim().replace(/\s+/g, " ");
+  return `${a} · ${resumen.length > 60 ? `${resumen.slice(0, 60)}…` : resumen}`;
+}
+
 // ---------- Proceso dueño de un encargo (ADR 0010): boot_id + pid + starttime, porque el pid solo se reusa ----------
 
 const bootId = readFileSync("/proc/sys/kernel/random/boot_id", "utf8").trim();
@@ -295,7 +300,7 @@ export function encargos(ctx: Ctx, config: Config) {
         throw new Error(`todos los actores de "${args.a}" están de baja: ${bajas.map((b) => `${b.id} hasta ${new Date(b.hasta).toISOString()}`).join(", ")}`);
       if (elegido !== validacion.actores.get(args.a!)![0]) suplencia = `el titular está de baja; entra ${etiqueta(elegido)}`;
       const s = await ctx.session.create({
-        title: `${args.a}: ${args.prompt.split("\n")[0]!.slice(0, 60)}`,
+        title: tituloEncargo(args.a!, args.prompt),
         agent: args.a,
         model: modelRef(elegido),
         location: { directory: padre.location.directory },
