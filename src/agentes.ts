@@ -106,6 +106,11 @@ export function registrar(editor: AgentEditor) {
   editor.update("build", (agent) => {
     agent.permissions.push(...deny("subagent", ...mcpActions));
   });
+  for (const agent of editor.list()) {
+    const id = String(agent.id);
+    if (id === "director" || id === "archivista" || id === "build") continue;
+    editor.update(id, (entry) => entry.permissions.push(...deny(...mcpActions)));
+  }
   editor.default("director");
 }
 

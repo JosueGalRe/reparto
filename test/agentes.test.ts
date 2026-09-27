@@ -96,7 +96,9 @@ test("dramaturgo puede ensayar y leer bitacora; critico sigue siendo de solo lec
 test("regidor keeps director's read-only rules without inheriting context7", () => {
   // Given: a build agent with permissive defaults.
   const agents = new Map<string, { permissions: { action: string; resource: string; effect: "allow" | "deny" | "ask" }[]; mode?: string }>();
+  agents.set("general", { permissions: [{ action: "*", resource: "*", effect: "allow" }] });
   const editor = {
+    list: () => [...agents.entries()].map(([id, agent]) => ({ id, ...agent })),
     get: (id: string) => agents.get(id),
     update: (id: string, fn: (agent: { permissions: { action: string; resource: string; effect: "allow" | "deny" | "ask" }[]; mode?: string }) => void) => {
       const agent = agents.get(id) ?? { permissions: [] };
@@ -108,8 +110,10 @@ test("regidor keeps director's read-only rules without inheriting context7", () 
   // When: the plugin registers its agents; Then: regidor keeps the read-only rules but not director's MCP grant.
   registrar(editor);
   expect(agents.get("regidor")?.mode).toBe("primary");
-  expect(agents.get("regidor")?.permissions).toEqual(permisos([]).regidor);
+  expect(agents.get("regidor")?.permissions.slice(0, -2)).toEqual(permisos([]).regidor);
   expect(agents.get("regidor")?.permissions.findLast((r) => r.action === "context7_*")?.effect).toBe("deny");
+  expect(agents.get("archivista")?.permissions.findLast((r) => r.action === "grep_app_*")?.effect).toBe("allow");
+  expect(agents.get("general")?.permissions.findLast((r) => r.action === "grep_app_*")?.effect).toBe("deny");
 });
 
 test("MCP permissions only expose context7 to director and archivista, grep_app to archivista", () => {
