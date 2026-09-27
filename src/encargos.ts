@@ -331,6 +331,34 @@ export function encargos(ctx: Ctx, config: Config) {
     return { content: `Encargo ${hija} (${a}, ${actor}) ${e.estado}.\n\n${cuerpo}`, metadata: { encargo: id, hija, estado: e.estado } };
   }
 
+  /** Interrumpe un encargo abierto cuya hija tenga `metadata.padre` = la sesión que llama. */
+  async function interrumpir(input: unknown, tool: ToolContext) {
+    const x = (input ?? {}) as { id?: unknown };
+    if (typeof x.id !== "string") throw new Error("interrumpir: falta `id` (el id de la sesión hija)");
+    const hija = x.id;
+    const s = await ctx.session.get({ sessionID: hija }).catch(() => undefined);
+    if (!s || s.metadata?.padre !== tool.sessionID)
+      throw new Error(`interrumpir: ${hija} no es un encargo de esta sesión; solo se pueden interrumpir los encargos propios`);
+    const e = db().query("SELECT * FROM encargos WHERE hija = $hija AND estado IN ('en_cola', 'corriendo', 'estancado')").get({ hija }) as Encargo | null;
+    if (!e) throw new Error(`interrumpir: ${hija} no tiene un encargo abierto`);
+    if (e.estado === "en_cola") {
+      // no llegó a correr: no hay ejecución que interrumpir, y en_cola solo puede pasar a corriendo o fallido
+      const cambios = { cerrado: Date.now(), error: "interrumpido antes de correr", aviso_pendiente: e.background };
+      if (transicion(e, "fallido", cambios)) {
+        abiertos().delete(hija);
+        if (e.background) await avisar({ ...e, ...cambios, estado: "fallido" }, textoAviso({ ...e, ...cambios, estado: "fallido" }, e.actor));
+      }
+    } else {
+      await ctx.session.interrupt({ sessionID: hija });
+      // la transición a interrumpido y el aviso los hace cerrar(), a partir de session.execution.interrupted
+      for (let i = 0; i < 40 && isOpen(leer(e.id)); i++) await Bun.sleep(250);
+      if (isOpen(leer(e.id))) await cerrar(e.id);
+    }
+    const final = leer(e.id)!;
+    log.info("interrupción pedida", { id: e.id, hija, por: tool.sessionID, estado: final.estado });
+    return { content: `Encargo ${hija} (${e.a}): ${final.estado}${final.error ? ` (${final.error})` : ""}.`, metadata: { encargo: e.id, hija, estado: final.estado } };
+  }
+
   async function bitacora(input: unknown) {
     const x = (input ?? {}) as { id?: unknown; detalle?: unknown };
     if (typeof x.id !== "string") throw new Error("bitacora: falta `id` (el id de la sesión hija)");
@@ -440,7 +468,7 @@ export function encargos(ctx: Ctx, config: Config) {
     }
   }
 
-  return { delegar, bitacora, registrarLlamada, evento, vigilar, reconciliar };
+  return { delegar, interrumpir, bitacora, registrarLlamada, evento, vigilar, reconciliar };
 }
 
 const isOpen = (e: Encargo | null) => !!e && (e.estado === "en_cola" || e.estado === "corriendo" || e.estado === "estancado");

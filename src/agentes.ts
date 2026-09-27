@@ -14,8 +14,10 @@ const allow = (...actions: string[]): Rule[] => actions.map((action) => ({ actio
 const deny = (...actions: string[]): Rule[] => actions.map((action) => ({ action, resource: "*", effect: "deny" }));
 
 // `git diff *` lleva el espacio para no dejar pasar `git difftool`. `head *` deja pasar `rg x | head`:
-// V2 exige que cada tramo de `;`, `&&`, `|` y `$( )` esté permitido (S7).
-const shellDeLectura: Rule[] = ["rg *", "git status*", "git diff", "git diff *", "head *"].map((resource) => ({
+// V2 exige que cada tramo de `;`, `&&`, `|` y `$( )` esté permitido (S7). V2 oculta las tools negadas pero no
+// los comandos: el guion de cada agente de lectura lleva esta misma lista (`seccionShell`).
+export const comandosDeLectura = ["rg *", "git status*", "git diff", "git diff *", "git ls-files*", "git log*", "git show*", "head *"];
+const shellDeLectura: Rule[] = comandosDeLectura.map((resource) => ({
   action: "shell",
   resource,
   effect: "allow",
@@ -31,9 +33,18 @@ function soloLectura(base: Rule[], extra: string[]): Rule[] {
   return [...base, ...deny("*"), ...allow("read", "glob", "grep", "skill", "webfetch", "websearch", ...extra), ...shellDeLectura, ...restricciones];
 }
 
+/** Se agrega al guion de los agentes con shell de lectura: V2 no les muestra qué comandos están permitidos. */
+export const seccionShell = [
+  "## Shell",
+  `\`shell\` only runs these read commands: ${comandosDeLectura.map((c) => `\`${c}\``).join(", ")}.`,
+  "Run one command per shell call. Do not chain with `&&` or `;`, and do not add helpers such as `printf`, `echo`, `cat`, `ls`, `find`, `wc` or `sort`: they are not on the list, so the whole call is denied. " +
+    "The only pipe allowed is into `head`. Redirection (`>`, `<`), backticks, newlines and the options `--output`, `--ext-diff`, `--textconv`, `--pre` are denied too. " +
+    "List files with `rg --files` or `git ls-files`, search with `grep` or `rg`, find paths with `glob`, and read files with `read`. If a command is denied, do not retry variations of it.",
+].join("\n\n");
+
 export function permisos(base: Rule[]) {
   return {
-    director: soloLectura(base, ["question", "delegar", "bitacora", "pendientes"]),
+    director: soloLectura(base, ["question", "delegar", "interrumpir", "bitacora", "pendientes"]),
     lectura: soloLectura(base, []),
     // Papeles y subagentes no delegan: un encargo nunca espera a otro dentro de la misma cola.
     papel: [...base, ...deny("question", "subagent", "delegar")],
@@ -65,8 +76,8 @@ export function registrar(editor: AgentEditor) {
       agent.permissions = permissions;
     });
 
-  definir("director", "primary", guion("director"), reglas.director);
-  for (const id of ["utilero", "archivista", "oracle"]) definir(id, "subagent", guion(id), reglas.lectura);
+  definir("director", "primary", `${guion("director")}\n\n${seccionShell}`, reglas.director);
+  for (const id of ["utilero", "archivista", "oracle"]) definir(id, "subagent", `${guion(id)}\n\n${seccionShell}`, reglas.lectura);
   // Los papeles no se invocan por nombre (no son agentes): se ocultan del `@`.
   for (const id of papeles) definir(id, "subagent", `${guion("papel")}\n\n${guion(id)}`, reglas.papel, true);
   editor.update("build", (agent) => {

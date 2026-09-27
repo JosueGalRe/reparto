@@ -49,3 +49,9 @@ test("ruteo: un papel desactivado no aparece en la tabla, y las exclusiones se l
   expect(texto).toContain("Disabled papeles");
   expect(texto).toContain("opencode-go/qwen3.7-plus#off");
 });
+
+test("el guion de lectura lista exactamente los comandos permitidos", async () => {
+  const { comandosDeLectura, seccionShell } = await import("../src/agentes.ts");
+  for (const comando of comandosDeLectura) expect(seccionShell).toContain(`\`${comando}\``);
+  expect(comandosDeLectura).toEqual(expect.arrayContaining(["git ls-files*", "git log*", "git show*"]));
+});

@@ -131,6 +131,20 @@ export default Plugin.define({
           execute: (input) => e.bitacora(input),
         });
         editor.add({
+          name: "interrumpir",
+          description:
+            "Interrupt one of your own open encargos (for example a stale one). Only encargos this session launched can be interrupted. " +
+            "The encargo closes as interrumpido and, if it ran in background, its notice arrives as usual.",
+          input: {
+            type: "object",
+            properties: { id: { type: "string", description: "Child session id of the encargo." } },
+            required: ["id"],
+            additionalProperties: false,
+          },
+          options: { codemode: false },
+          execute: (input, tool) => e.interrumpir(input, tool),
+        });
+        editor.add({
           name: "pendientes",
           description:
             "Read or rewrite this session's work list. Without `items` it returns the list; with `items` it replaces the whole list and returns it. " +
