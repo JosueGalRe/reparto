@@ -1,10 +1,12 @@
-import { Database } from "bun:sqlite";
-import { mkdirSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { dataDir, log } from "./log.ts";
-import { proceso } from "./process.ts";
+import { mkdirSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 
-export const defaultDbPath = join(dataDir, "reparto.db");
+import { Database } from 'bun:sqlite'
+
+import { dataDir, log } from './log.ts'
+import { proceso } from './process.ts'
+
+export const defaultDbPath = join(dataDir, 'reparto.db')
 
 // La sesión hija sigue siendo la fuente de verdad de la ejecución (ADR 0010): acá va solo lo que V2 no guarda.
 const schema = `
@@ -105,26 +107,28 @@ CREATE TABLE IF NOT EXISTS continuaciones (
 CREATE TABLE IF NOT EXISTS continuacion_eventos (
   event_id TEXT PRIMARY KEY
 );
-`;
+`
 
 /** Reapply additive, idempotent migrations even when the connection survives module reload. */
 export function ensureSchema(database: Database): void {
-  database.run(schema);
+  database.run(schema)
 }
 
 export function openDb(path: string): Database {
-  mkdirSync(dirname(path), { recursive: true });
-  const db = new Database(path, { create: true, strict: true });
-  db.run("PRAGMA journal_mode = WAL");
-  db.run("PRAGMA busy_timeout = 5000");
-  ensureSchema(db);
-  return db;
+  mkdirSync(dirname(path), { recursive: true })
+  const db = new Database(path, { create: true, strict: true })
+
+  db.run('PRAGMA journal_mode = WAL')
+  db.run('PRAGMA busy_timeout = 5000')
+  ensureSchema(db)
+
+  return db
 }
 
 /** Una conexión por proceso, compartida por todas las locations. */
-export const db = (): Database => (proceso.db ??= openDb(defaultDbPath));
+export const db = (): Database => (proceso.db ??= openDb(defaultDbPath))
 
-const isBusy = (error: unknown) => error instanceof Error && "code" in error && String(error.code).startsWith("SQLITE_BUSY");
+const isBusy = (error: unknown) => error instanceof Error && 'code' in error && String(error.code).startsWith('SQLITE_BUSY')
 
 /**
  * Transacción corta (IMMEDIATE). SQLite respeta busy_timeout pero no garantiza turno (S5): un SQLITE_BUSY se
@@ -133,11 +137,12 @@ const isBusy = (error: unknown) => error instanceof Error && "code" in error && 
 export function write<T>(database: Database, what: string, fn: () => T): T | undefined {
   for (let attempt = 1; ; attempt++) {
     try {
-      return database.transaction(fn).immediate();
+      return database.transaction(fn).immediate()
     } catch (error) {
-      if (isBusy(error) && attempt === 1) continue;
-      log.error("escritura en SQLite falló", { what, attempt, error: String(error) });
-      return undefined;
+      if (isBusy(error) && attempt === 1) {continue}
+      log.error('escritura en SQLite falló', { what, attempt, error: String(error) })
+
+      return undefined
     }
   }
 }

@@ -8,23 +8,23 @@ Las pruebas con modelo usaron `kimi-code-plan-global/k3#low`, `claude-code/haiku
 
 ## Resumen
 
-| # | Resultado | Cambia |
-|---|---|---|
-| S0 | Sí: `OPENCODE_CONFIG_DIR` + quitar las variables de OpenChamber + servidor propio | — |
-| S1 | Sesión libre: hay turno salvo con `resume: false`. Ocupada: `steer` entra en el siguiente paso y `queue` al final, sin ejecución nueva | Plan 1.6 |
-| S2 | El plugin queda `failed` con el error en `plugin.list`; los demás arrancan | — |
-| S3 | V2 ya clasifica (`provider.quota`, `.rate-limit`, `.internal`, `.auth`). OpenAI va por WebSocket y `http.response` no lo ve. El límite de `claude-code` llega como `rate-limit`. `retry: false` corta el reintento | ADR 0004, plan 1.8 |
-| S5 | `bun:sqlite` funciona. `ctx.storage` es compartido pero sin transacciones. Las transiciones atómicas aguantan entre procesos | ADR 0010, plan 1.4 |
-| S6 | Sí, con `skills: [{ id }]`: el texto del skill viaja en el mensaje | Plan 1.6 |
-| S7 | V2 evalúa cada tramo de `;`, `&&`, `\|` y `$( )`, y oculta las tools negadas. La redirección y `--output` pasan; se cierran en `evaluate` | ADR 0006, plan 1.5 |
-| S8 | Lo mejor es `switchModel` dentro de `retry` + `{ retry: true, delay: 0 }`. También sirven `synthetic` tras `failed` y `switchModel` en `prompt`. El variant sale en la request | ADR 0004, plan 1.8 |
-| S9 | En `setup` falta lo que registran plugins posteriores; el `model.transform` ve el catálogo completo y se repite en cada `model.updated` | Plan 1.2, 1.9 |
-| S10 | Selector: solo primarios; `@`: subagentes no ocultos. `default` vale en la TUI y el servidor, no en OpenChamber. `build` se edita. `agent.model` solo lo aplican la TUI y el `subagent` nativo | Plan 1.5, 1.8, riesgos |
-| S11 | Sí, con `haiku` y con `claude-opus-5-5` | — |
-| S12 | Sí en la TUI y en `command.list`, que es lo que usa OpenChamber | — |
-| S13 | `session.execution.{started,succeeded,failed,interrupted}`, sin `location`. `wait` vuelve igual en los tres; `session.get().outcome` los distingue | ADR 0009, plan 1.6 |
-| S14 | Completo antes de compactar; después solo queda el resumen | Plan 1.4, 1.6 |
-| S15 | Un `setup` por location y por proceso. Todas las instancias reciben todos los eventos del proceso; los hooks corren solo en la de la sesión, una vez por fallo. Los eventos no cruzan procesos, y una hija cuyo proceso muere queda sin `outcome` | Plan 1.6, riesgos |
+| #   | Resultado                                                                                                                                                                                                                                         | Cambia                 |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------- |
+| S0  | Sí: `OPENCODE_CONFIG_DIR` + quitar las variables de OpenChamber + servidor propio                                                                                                                                                                 | —                      |
+| S1  | Sesión libre: hay turno salvo con `resume: false`. Ocupada: `steer` entra en el siguiente paso y `queue` al final, sin ejecución nueva                                                                                                            | Plan 1.6               |
+| S2  | El plugin queda `failed` con el error en `plugin.list`; los demás arrancan                                                                                                                                                                        | —                      |
+| S3  | V2 ya clasifica (`provider.quota`, `.rate-limit`, `.internal`, `.auth`). OpenAI va por WebSocket y `http.response` no lo ve. El límite de `claude-code` llega como `rate-limit`. `retry: false` corta el reintento                                | ADR 0004, plan 1.8     |
+| S5  | `bun:sqlite` funciona. `ctx.storage` es compartido pero sin transacciones. Las transiciones atómicas aguantan entre procesos                                                                                                                      | ADR 0010, plan 1.4     |
+| S6  | Sí, con `skills: [{ id }]`: el texto del skill viaja en el mensaje                                                                                                                                                                                | Plan 1.6               |
+| S7  | V2 evalúa cada tramo de `;`, `&&`, `\|` y `$( )`, y oculta las tools negadas. La redirección y `--output` pasan; se cierran en `evaluate`                                                                                                         | ADR 0006, plan 1.5     |
+| S8  | Lo mejor es `switchModel` dentro de `retry` + `{ retry: true, delay: 0 }`. También sirven `synthetic` tras `failed` y `switchModel` en `prompt`. El variant sale en la request                                                                    | ADR 0004, plan 1.8     |
+| S9  | En `setup` falta lo que registran plugins posteriores; el `model.transform` ve el catálogo completo y se repite en cada `model.updated`                                                                                                           | Plan 1.2, 1.9          |
+| S10 | Selector: solo primarios; `@`: subagentes no ocultos. `default` vale en la TUI y el servidor, no en OpenChamber. `build` se edita. `agent.model` solo lo aplican la TUI y el `subagent` nativo                                                    | Plan 1.5, 1.8, riesgos |
+| S11 | Sí, con `haiku` y con `claude-opus-5-5`                                                                                                                                                                                                           | —                      |
+| S12 | Sí en la TUI y en `command.list`, que es lo que usa OpenChamber                                                                                                                                                                                   | —                      |
+| S13 | `session.execution.{started,succeeded,failed,interrupted}`, sin `location`. `wait` vuelve igual en los tres; `session.get().outcome` los distingue                                                                                                | ADR 0009, plan 1.6     |
+| S14 | Completo antes de compactar; después solo queda el resumen                                                                                                                                                                                        | Plan 1.4, 1.6          |
+| S15 | Un `setup` por location y por proceso. Todas las instancias reciben todos los eventos del proceso; los hooks corren solo en la de la sesión, una vez por fallo. Los eventos no cruzan procesos, y una hija cuyo proceso muere queda sin `outcome` | Plan 1.6, riesgos      |
 
 ---
 
@@ -69,13 +69,13 @@ La TUI (`run.sh --server http://127.0.0.1:4297 /tmp/reparto-sondas/a`, ventana t
 
 **Evidencia.** Sesión libre, un caso por sesión nueva (`log/s1.tsv`):
 
-| delivery | resume | ejecuciones |
-|---|---|---|
-| — | — | 1 |
-| steer | — | 1 |
-| queue | — | 1 |
-| — / steer / queue | true | 1 |
-| — / steer / queue | false | 0 |
+| delivery          | resume | ejecuciones |
+| ----------------- | ------ | ----------- |
+| —                 | —      | 1           |
+| steer             | —      | 1           |
+| queue             | —      | 1           |
+| — / steer / queue | true   | 1           |
+| — / steer / queue | false  | 0           |
 
 Sesión ocupada con tres llamadas a `eco` pedidas en serie (`ses_f26c0b799…` con `steer`, `ses_f26c01623…` con `queue`):
 
@@ -116,13 +116,13 @@ queue: 15:47:24.899 inbox.enqueued · eco(dos) · eco(tres) · 15:47:41.530 step
 
 1. **V2 ya clasifica el error.** `retry.error` trae `type`, `message` y `status`:
 
-   | Respuesta | `error.type` | `decision` por defecto |
-   |---|---|---|
-   | 429 `insufficient_quota` / OpenAI `usage_limit_reached` | `provider.quota` | `{ retry: false }` |
-   | 429 `rate_limit_exceeded` con `retry-after: 2` | `provider.rate-limit` | `{ retry: true, delay: 2000 }`, después 4217 y 7502 (backoff) |
-   | 429 de `claude-code` (`rate_limit_error`, `code: "claude_session_limit"`, `Retry-After: 7200`) | `provider.rate-limit` | `{ retry: true, delay: 900000 }` |
-   | 503 | `provider.internal` | `{ retry: true, delay: 2311 }` |
-   | 401 | `provider.auth` | `{ retry: false }` |
+   | Respuesta                                                                                      | `error.type`          | `decision` por defecto                                        |
+   | ---------------------------------------------------------------------------------------------- | --------------------- | ------------------------------------------------------------- |
+   | 429 `insufficient_quota` / OpenAI `usage_limit_reached`                                        | `provider.quota`      | `{ retry: false }`                                            |
+   | 429 `rate_limit_exceeded` con `retry-after: 2`                                                 | `provider.rate-limit` | `{ retry: true, delay: 2000 }`, después 4217 y 7502 (backoff) |
+   | 429 de `claude-code` (`rate_limit_error`, `code: "claude_session_limit"`, `Retry-After: 7200`) | `provider.rate-limit` | `{ retry: true, delay: 900000 }`                              |
+   | 503                                                                                            | `provider.internal`   | `{ retry: true, delay: 2311 }`                                |
+   | 401                                                                                            | `provider.auth`       | `{ retry: false }`                                            |
 
    `attempt` vale 2 en el primer `retry`: es el número del intento que se haría. El hook se dispara una vez por fallo y la ejecución emite `session.retry.scheduled` con el mismo `attempt`.
 
@@ -232,12 +232,12 @@ execute: search({query:"shell"}) → {"items":[]}
 
 **Resultado.**
 
-| Caso | Cómo | Resultado |
-|---|---|---|
-| Dentro de `retry` | `switchModel` + `decision = { retry: true, delay: 0 }` | El reintento sale con el suplente, en el mismo mensaje del asistente, sin mensaje nuevo. |
+| Caso                | Cómo                                                   | Resultado                                                                                             |
+| ------------------- | ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------- |
+| Dentro de `retry`   | `switchModel` + `decision = { retry: true, delay: 0 }` | El reintento sale con el suplente, en el mismo mensaje del asistente, sin mensaje nuevo.              |
 | Después de `failed` | `switchModel` + `synthetic` (con `resume` por defecto) | Turno nuevo con el suplente; queda un mensaje `synthetic` visible, pero no se duplica el del usuario. |
-| Después de `failed` | `switchModel` + `interrupt({ resume: true })` | No hace nada: `{"interrupted": false}` y ningún turno. |
-| En `prompt` | `switchModel` dentro del hook | Ese mismo turno sale con el modelo nuevo. |
+| Después de `failed` | `switchModel` + `interrupt({ resume: true })`          | No hace nada: `{"interrupted": false}` y ningún turno.                                                |
+| En `prompt`         | `switchModel` dentro del hook                          | Ese mismo turno sale con el modelo nuevo.                                                             |
 
 El variant sale en la request: Kimi lo manda como `reasoning_effort` en el cuerpo, OpenAI como `reasoning.effort` en el frame `response.create`, y `claude-code` en el header `x-opencode-claude-effort`, que en base64 es `{"modelId":"haiku","effort":"low"}`.
 
@@ -434,17 +434,17 @@ El 2026-09-26, al arrancar la fase 1, el binario ya era `opencode v2.0.18` (tamb
 - reparto fija el SDK en `2.0.18` exacto.
 - Cada sonda se da por confirmada en 2.0.18 cuando la confirma un escenario de una rebanada contra el servidor real. Si un escenario la contradice, se para.
 
-| Sonda | Confirmada en 2.0.18 por |
-|---|---|
-| S1, en parte | 1.6, "tres encargos en background a utilero": con el padre libre, cada `synthetic({ delivery: "queue" })` dispara un turno del director (tres avisos, tres turnos) sin que nadie escriba. El caso con el padre ocupado no se aisló |
-| S3 | 1.8, con fallos inyectados como en la sonda original (plugin de desarrollo `scripts/fault-plugin`, que reemplaza la `Response` o el frame): el `retry` trae `provider.quota`, `.rate-limit`, `.internal` y `.auth` igual que en 2.0.16; el cuerpo llega a `http.response` y el frame de OpenAI a `experimental.ws.receive` antes del `retry` de la misma sesión; `claude_session_limit` llega como `rate-limit` con `delay: 180000`; y `{ retry: false }` lleva a `session.execution.failed` en el acto ("todos de baja": 28 ms). Un 429 real sigue sin observarse |
-| S7 | 1.5, escenarios de shell del director: V2 niega `sed -i`, `rg hola; rm y.txt` y `git difftool --extcmd=…` (tramo fuera de la lista), `rg hola > f` y `git diff --output=f` pasan las reglas y los niega el hook `evaluate`, y `rg hola notas.md \| head -1` pasa. Dato nuevo: ``rg `touch f` `` lo niega V2 sin llegar al hook. Las tools negadas no llegan al modelo: el director ve `glob, grep, question, read, shell, skill, webfetch, websearch` y `build` ve además `edit`, `write`, `execute` y `pty_*`, sin `subagent` |
-| S8 | 1.5, "sesión del director con otro modelo": `switchModel` dentro del hook `prompt` afecta ese mismo turno. 1.8, "titular y primer suplente por cuota": `switchModel` dentro de `retry` + `{ retry: true, delay: 0 }` reintenta con el suplente en la misma ejecución, dos veces seguidas, con un solo mensaje del usuario |
-| S9 | 1.2, escenario con OpenCode real: `openai/gpt-4o`, `o3`, `gpt-4.1` y `gpt-5` salen del transform con `enabled: false` (no están en `model.list`), y con reparto antes de `opencode-claude` en `plugins` el transform igual ve `claude-code/claude-opus-5-5` |
-| S10, en parte | 1.5: una sesión creada por API sin agente corre con `director` (`AgentEditor.default`), `AgentEditor.update` crea los agentes nuevos y `build` se edita (`subagent: deny` al final). TUI y OpenChamber no se abrieron |
-| S13 | 1.6: los encargos cierran con `session.execution.succeeded` e `.interrupted` y `session.get().outcome` los distingue ("interrumpir una hija a mano" da `interrumpido`); `session.wait` vuelve al terminar en modo sincrónico ("cambio de una línea" a `rapido`). Sin `location` en esos eventos: el filtro por `sessionID` alcanzó |
-| S14 | 1.6, "bitácora después de compactar": tras `session.compact`, `session.context` de la hija queda en `["compaction","idle"]`, y `bitacora` sigue listando sus 9 tool calls y su mensaje final desde SQLite |
-| S15 | **Contradicha en 2.0.18** en un punto: el módulo del plugin no se comparte entre locations (ver abajo). El resto se confirma en 1.6: `setup` corre una vez por location y por proceso; un encargo con dos locations vivas da un solo aviso; los eventos no cruzan procesos (el servidor de 4298 no registró nada del encargo 18 de 4297); y las hijas de un proceso muerto con `kill -9` quedan sin `outcome` posterior y se reconcilian como "perdido en reinicio" |
+| Sonda         | Confirmada en 2.0.18 por                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| S1, en parte  | 1.6, "tres encargos en background a utilero": con el padre libre, cada `synthetic({ delivery: "queue" })` dispara un turno del director (tres avisos, tres turnos) sin que nadie escriba. El caso con el padre ocupado no se aisló                                                                                                                                                                                                                                                                                                                                 |
+| S3            | 1.8, con fallos inyectados como en la sonda original (plugin de desarrollo `scripts/fault-plugin`, que reemplaza la `Response` o el frame): el `retry` trae `provider.quota`, `.rate-limit`, `.internal` y `.auth` igual que en 2.0.16; el cuerpo llega a `http.response` y el frame de OpenAI a `experimental.ws.receive` antes del `retry` de la misma sesión; `claude_session_limit` llega como `rate-limit` con `delay: 180000`; y `{ retry: false }` lleva a `session.execution.failed` en el acto ("todos de baja": 28 ms). Un 429 real sigue sin observarse |
+| S7            | 1.5, escenarios de shell del director: V2 niega `sed -i`, `rg hola; rm y.txt` y `git difftool --extcmd=…` (tramo fuera de la lista), `rg hola > f` y `git diff --output=f` pasan las reglas y los niega el hook `evaluate`, y `rg hola notas.md \| head -1` pasa. Dato nuevo: ``rg `touch f` `` lo niega V2 sin llegar al hook. Las tools negadas no llegan al modelo: el director ve `glob, grep, question, read, shell, skill, webfetch, websearch` y `build` ve además `edit`, `write`, `execute` y `pty_*`, sin `subagent`                                     |
+| S8            | 1.5, "sesión del director con otro modelo": `switchModel` dentro del hook `prompt` afecta ese mismo turno. 1.8, "titular y primer suplente por cuota": `switchModel` dentro de `retry` + `{ retry: true, delay: 0 }` reintenta con el suplente en la misma ejecución, dos veces seguidas, con un solo mensaje del usuario                                                                                                                                                                                                                                          |
+| S9            | 1.2, escenario con OpenCode real: `openai/gpt-4o`, `o3`, `gpt-4.1` y `gpt-5` salen del transform con `enabled: false` (no están en `model.list`), y con reparto antes de `opencode-claude` en `plugins` el transform igual ve `claude-code/claude-opus-5-5`                                                                                                                                                                                                                                                                                                        |
+| S10, en parte | 1.5: una sesión creada por API sin agente corre con `director` (`AgentEditor.default`), `AgentEditor.update` crea los agentes nuevos y `build` se edita (`subagent: deny` al final). TUI y OpenChamber no se abrieron                                                                                                                                                                                                                                                                                                                                              |
+| S13           | 1.6: los encargos cierran con `session.execution.succeeded` e `.interrupted` y `session.get().outcome` los distingue ("interrumpir una hija a mano" da `interrumpido`); `session.wait` vuelve al terminar en modo sincrónico ("cambio de una línea" a `rapido`). Sin `location` en esos eventos: el filtro por `sessionID` alcanzó                                                                                                                                                                                                                                 |
+| S14           | 1.6, "bitácora después de compactar": tras `session.compact`, `session.context` de la hija queda en `["compaction","idle"]`, y `bitacora` sigue listando sus 9 tool calls y su mensaje final desde SQLite                                                                                                                                                                                                                                                                                                                                                          |
+| S15           | **Contradicha en 2.0.18** en un punto: el módulo del plugin no se comparte entre locations (ver abajo). El resto se confirma en 1.6: `setup` corre una vez por location y por proceso; un encargo con dos locations vivas da un solo aviso; los eventos no cruzan procesos (el servidor de 4298 no registró nada del encargo 18 de 4297); y las hijas de un proceso muerto con `kill -9` quedan sin `outcome` posterior y se reconcilian como "perdido en reinicio"                                                                                                |
 
 ### S15: el módulo ya no se comparte entre locations
 

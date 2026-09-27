@@ -210,7 +210,7 @@ export default {
       { blankLine: 'always', prev: '*', next: 'return' },
     ],
     'typescript/ban-ts-comment': 'error',
-    // ponytail: vuelve a error en la fase de revisión; las as existentes se migran entonces.
+    // Ponytail: vuelve a error en la fase de revisión; las as existentes se migran entonces.
     'typescript/consistent-type-assertions': [
       'warn',
       {

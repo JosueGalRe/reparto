@@ -1,233 +1,286 @@
-import { Plugin } from "@opencode/plugin";
-import { esActor, etiqueta, modelRef, publicar, resolver, validar } from "./actores.ts";
-import { conShellDeLectura, motivoNegado, papeles, registrar, ruteo } from "./agentes.ts";
-import { bajasVigentes, deBaja, suplencias } from "./bajas.ts";
-import { readCatalog } from "./catalog.ts";
-import { configPath, loadConfig } from "./config.ts";
-import { continuacion } from "./continuacion.ts";
-import { db, ensureSchema } from "./db.ts";
-import { destinos, encargos, hijosNativos } from "./encargos.ts";
-import { ensayo } from "./ensayo.ts";
-import { clavePlan, estreno, planDeSesion } from "./estreno.ts";
-import { log } from "./log.ts";
-import { escribirPendientes, estados, formatear, leerPendientes, parsearItems } from "./pendientes.ts";
-import { proceso } from "./process.ts";
+import { Plugin } from '@opencode/plugin'
+
+import { esActor, etiqueta, modelRef, publicar, resolver, validar } from './actores.ts'
+import { conShellDeLectura, motivoNegado, papeles, registrar, ruteo } from './agentes.ts'
+import { bajasVigentes, deBaja, suplencias } from './bajas.ts'
+import { readCatalog } from './catalog.ts'
+import { configPath, loadConfig } from './config.ts'
+import { continuacion } from './continuacion.ts'
+import { db, ensureSchema } from './db.ts'
+import { destinos, encargos, hijosNativos } from './encargos.ts'
+import { ensayo } from './ensayo.ts'
+import { clavePlan, estreno, planDeSesion } from './estreno.ts'
+import { log } from './log.ts'
+import { escribirPendientes, estados, formatear, leerPendientes, parsearItems } from './pendientes.ts'
+import { proceso } from './process.ts'
 
 // Id de esta copia del módulo: en 2.0.18 cada location importa la suya (sondas.md, S15).
-const modulo = crypto.randomUUID().slice(0, 8);
-const debug = !!process.env.REPARTO_DEBUG;
+const modulo = crypto.randomUUID().slice(0, 8)
+const debug = !!process.env.REPARTO_DEBUG
 
 /** Primarios cuyo actor impone reparto en el hook `prompt`: el servidor no aplica `agent.model` (S10). */
-const primarios = new Set(["director", "dramaturgo", "regidor", "build"]);
-const hijos = new Set(["utilero", "archivista", "oracle", "critico", ...papeles]);
+const primarios = new Set(['director', 'dramaturgo', 'regidor', 'build'])
+const hijos = new Set(['utilero', 'archivista', 'oracle', 'critico', ...papeles])
 
 export async function imponerHija(ctx: Plugin.Context, sessionID: string) {
-  const sesion = await ctx.session.get({ sessionID });
-  if (!sesion.parentID || !hijos.has(sesion.agent ?? "")) return false;
-  hijosNativos().set(sessionID, { padre: sesion.parentID, actividad: Date.now(), avisado: false, permiso: false });
-  const agente = sesion.agent ?? "";
-  const actor = proceso.validacion && resolver(proceso.validacion, agente, deBaja(bajasVigentes(db())));
+  const sesion = await ctx.session.get({ sessionID })
+
+  if (!sesion.parentID || !hijos.has(sesion.agent ?? '')) {return false}
+  hijosNativos().set(sessionID, { padre: sesion.parentID, actividad: Date.now(), avisado: false, permiso: false })
+  const agente = sesion.agent ?? ''
+  const actor = proceso.validacion && resolver(proceso.validacion, agente, deBaja(bajasVigentes(db())))
+
   if (!actor) {
-    log.warn("sin actor para imponer", { sessionID, agente });
-    return true;
+    log.warn('sin actor para imponer', { sessionID, agente })
+
+    return true
   }
+
   if (!sesion.model || !esActor(actor, sesion.model)) {
-    await ctx.session.switchModel({ sessionID, model: modelRef(actor) });
-    log.info("actor impuesto", { sessionID, agente, actor: etiqueta(actor), antes: sesion.model ?? null });
+    await ctx.session.switchModel({ sessionID, model: modelRef(actor) })
+    log.info('actor impuesto', { sessionID, agente, actor: etiqueta(actor), antes: sesion.model ?? null })
   }
-  return true;
+
+  return true
 }
 
 export default Plugin.define({
-  id: "reparto",
-  // setup nunca lanza: un plugin `failed` no deja ni el aviso al director (S2)
+  id: 'reparto',
+  // Setup nunca lanza: un plugin `failed` no deja ni el aviso al director (S2)
   setup: async (ctx) => {
     try {
-      const path = configPath(ctx.options);
-      const loaded = await loadConfig(path);
-      if ("error" in loaded) {
-        log.error("inactivo: config inválida", { location: ctx.location.directory, error: loaded.error });
-        return;
+      const path = configPath(ctx.options)
+      const loaded = await loadConfig(path)
+
+      if ('error' in loaded) {
+        log.error('inactivo: config inválida', { location: ctx.location.directory, error: loaded.error })
+
+        return
       }
-      const { config } = loaded;
-      ensureSchema(db());
-      log.info("activo", { location: ctx.location.directory, config: path, version: ctx.app.version, modulo });
-      const bajas = bajasVigentes(db());
-      if (bajas.length) log.info("bajas vigentes", { location: ctx.location.directory, bajas });
+
+      const { config } = loaded
+
+      ensureSchema(db())
+      log.info('activo', { location: ctx.location.directory, config: path, version: ctx.app.version, modulo })
+      const bajas = bajasVigentes(db())
+
+      if (bajas.length) {log.info('bajas vigentes', { location: ctx.location.directory, bajas })}
 
       // El transform ve el catálogo completo, sin importar el orden de `plugins`, y se repite en cada
-      // model.updated (S9). El callback es sincrónico: guarda el catálogo y la validación corre fuera.
+      // Model.updated (S9). El callback es sincrónico: guarda el catálogo y la validación corre fuera.
       await ctx.model.transform((editor) => {
-        const catalog = readCatalog(editor);
+        const catalog = readCatalog(editor)
+
         setTimeout(async () => {
           try {
-            const agentes = (await ctx.agent.list()).data.map((agent) => String(agent.id));
-            publicar(validar(config, catalog, agentes));
-          } catch (error) {
-            log.error("validación de actores falló", { error: String(error) });
-          }
-        });
-      });
+            const agentes = (await ctx.agent.list()).data.map((agent) => String(agent.id))
 
-      await ctx.agent.transform(registrar);
-      await ctx.command.transform((editor) => editor.add({ name: "estreno", description: "Estrena un plan aprobado: /estreno .reparto/planes/<plan>.md [con-objeciones]", execute: estreno(ctx) }));
-      const c = continuacion(ctx);
+            publicar(validar(config, catalog, agentes))
+          } catch (error) {
+            log.error('validación de actores falló', { error: String(error) })
+          }
+        }, 0)
+      })
+
+      await ctx.agent.transform(registrar)
+      await ctx.command.transform((editor) =>
+        editor.add({
+          name: 'estreno',
+          description: 'Estrena un plan aprobado: /estreno .reparto/planes/<plan>.md [con-objeciones]',
+          execute: estreno(ctx),
+        }),
+      )
+      const c = continuacion(ctx)
 
       // Sesiones primarias: el actor resuelto se impone en el primer turno y en el primer turno después de que
-      // empiece o termine una baja que lo cambie. El resto del tiempo se respeta el modelo de la sesión, así que un
-      // cambio a mano no se revierte. Lo impuesto va en ctx.storage para que una recarga o un reinicio no lo tomen
-      // como primer turno.
-      await ctx.session.hook("prompt", async (input) => {
+      // Empiece o termine una baja que lo cambie. El resto del tiempo se respeta el modelo de la sesión, así que un
+      // Cambio a mano no se revierte. Lo impuesto va en ctx.storage para que una recarga o un reinicio no lo tomen
+      // Como primer turno.
+      await ctx.session.hook('prompt', async (input) => {
         try {
-          if (input.metadata?.repartoAviso === true) return;
-          if (await imponerHija(ctx, input.sessionID)) return;
-          const sesion = await ctx.session.get({ sessionID: input.sessionID });
-          const agente = sesion.agent ?? "director";
-          if (!primarios.has(agente)) return;
-          const clave = `impuesto/${input.sessionID}/${agente}`;
-          const actor = proceso.validacion && resolver(proceso.validacion, agente, deBaja(bajasVigentes(db())));
-          if (!actor) return log.warn("sin actor para imponer", { sessionID: input.sessionID, agente });
-          const previo = (await ctx.storage.get(clave)) as { actor?: string } | undefined;
-          if (previo?.actor === etiqueta(actor)) return;
-          await ctx.session.switchModel({ sessionID: input.sessionID, model: modelRef(actor) });
-          await ctx.storage.set(clave, { actor: etiqueta(actor) });
-          log.info("actor impuesto", {
+          if (input.metadata?.repartoAviso === true) {return}
+          if (await imponerHija(ctx, input.sessionID)) {return}
+          const sesion = await ctx.session.get({ sessionID: input.sessionID })
+          const agente = sesion.agent ?? 'director'
+
+          if (!primarios.has(agente)) {return}
+          const clave = `impuesto/${input.sessionID}/${agente}`
+          const actor = proceso.validacion && resolver(proceso.validacion, agente, deBaja(bajasVigentes(db())))
+
+          if (!actor) {return log.warn('sin actor para imponer', { sessionID: input.sessionID, agente })}
+          const previo = (await ctx.storage.get(clave)) as { actor?: string } | undefined
+
+          if (previo?.actor === etiqueta(actor)) {return}
+          await ctx.session.switchModel({ sessionID: input.sessionID, model: modelRef(actor) })
+          await ctx.storage.set(clave, { actor: etiqueta(actor) })
+          log.info('actor impuesto', {
             sessionID: input.sessionID,
             agente,
             actor: etiqueta(actor),
-            motivo: previo ? `cambió el actor resuelto (antes ${previo.actor})` : "primer turno",
+            motivo: previo ? `cambió el actor resuelto (antes ${previo.actor})` : 'primer turno',
             antes: sesion.model ?? null,
-          });
+          })
         } catch (error) {
-          log.error("hook prompt falló", { sessionID: input.sessionID, error: String(error) });
+          log.error('hook prompt falló', { sessionID: input.sessionID, error: String(error) })
         }
-      });
-      await ctx.session.hook("prompt", (input) => c.prompt(input));
+      })
+      await ctx.session.hook('prompt', (input) => c.prompt(input))
 
-      await ctx.session.hook("context", (input) => {
-        if (debug) log.info("debug: tools de la request", { sessionID: input.sessionID, agent: input.agent, tools: Object.keys(input.tools).sort() });
-        if (input.agent === "director" || input.agent === "regidor") input.system.push({ type: "text", text: ruteo(proceso.validacion) });
-      });
+      await ctx.session.hook('context', (input) => {
+        if (debug)
+          {log.info('debug: tools de la request', {
+            sessionID: input.sessionID,
+            agent: input.agent,
+            tools: Object.keys(input.tools).sort(),
+          })}
+        if (input.agent === 'director' || input.agent === 'regidor')
+          {input.system.push({ type: 'text', text: ruteo(proceso.validacion) })}
+      })
 
       // Solo corre cuando las reglas ya dieron allow (S7): sirve para negar, no para permitir.
-      await ctx.permission.hook("evaluate", (input) => {
-        if (input.action !== "shell" || input.effect !== "allow" || !conShellDeLectura.has(String(input.agent))) return;
+      await ctx.permission.hook('evaluate', (input) => {
+        if (input.action !== 'shell' || input.effect !== 'allow' || !conShellDeLectura.has(String(input.agent))) {return}
         for (const tramo of input.resources) {
-          const motivo = motivoNegado(tramo);
-          if (!motivo) continue;
-          input.effect = "deny";
-          input.message = `reparto: ${motivo} negada en el shell de solo lectura. Para cambiar archivos, delega.`;
-          log.info("shell negado", { sessionID: input.sessionID, agent: input.agent, tramo, motivo });
-          return;
+          const motivo = motivoNegado(tramo)
+
+          if (!motivo) {continue}
+          input.effect = 'deny'
+          input.message = `reparto: ${motivo} negada en el shell de solo lectura. Para cambiar archivos, delega.`
+          log.info('shell negado', { sessionID: input.sessionID, agent: input.agent, tramo, motivo })
+
+          return
         }
-      });
+      })
 
       if (debug)
-        await ctx.session.hook("model.request", (input) => {
-          log.info("debug: model.request", { sessionID: input.sessionID, agent: input.agent, kind: input.kind, model: input.model });
-        });
+        {await ctx.session.hook('model.request', (input) => {
+          log.info('debug: model.request', {
+            sessionID: input.sessionID,
+            agent: input.agent,
+            kind: input.kind,
+            model: input.model,
+          })
+        })}
 
-      const s = suplencias(ctx, config);
+      const s = suplencias(ctx, config)
+
       // El cuerpo del error corrige la clasificación de V2 y trae el reset (S3). Solo requests `primary`.
-      await ctx.session.hook("http.response", async (x) => {
-        if (x.kind !== "primary" || x.response.ok) return;
+      await ctx.session.hook('http.response', async (x) => {
+        if (x.kind !== 'primary' || x.response.ok) {return}
         const cuerpo = await x.response
           .clone()
           .text()
-          .catch(() => "");
-        s.guardar(x.sessionID, x.kind, x.model, cuerpo, Object.fromEntries(x.response.headers));
-      });
-      // openai va por WebSocket: su error llega como un frame (S3). Hook experimental: si cambia, la baja cae en plazoBaja.
-      await ctx.session.hook("experimental.ws.receive", (x) => {
-        if (x.kind !== "primary" || !x.frame.includes('"error"')) return;
-        if (x.frame.startsWith('{"type":"error"')) s.guardar(x.sessionID, x.kind, x.model, x.frame, {});
-      });
-      await ctx.session.hook("retry", async (r) => {
-        try {
-          await s.retry(r);
-        } catch (error) {
-          log.error("hook retry falló", { sessionID: r.sessionID, error: String(error) });
-        }
-      });
+          .catch(() => '')
 
-      const e = encargos(ctx, config);
-      const ensayar = ensayo(ctx, e);
-      // codemode: false, o el modelo solo las alcanza desde `execute` (S11)
+        s.guardar(x.sessionID, x.kind, x.model, cuerpo, Object.fromEntries(x.response.headers))
+      })
+      // Openai va por WebSocket: su error llega como un frame (S3). Hook experimental: si cambia, la baja cae en plazoBaja.
+      await ctx.session.hook('experimental.ws.receive', (x) => {
+        if (x.kind !== 'primary' || !x.frame.includes('"error"')) {return}
+        if (x.frame.startsWith('{"type":"error"')) {s.guardar(x.sessionID, x.kind, x.model, x.frame, {})}
+      })
+      await ctx.session.hook('retry', async (r) => {
+        try {
+          await s.retry(r)
+        } catch (error) {
+          log.error('hook retry falló', { sessionID: r.sessionID, error: String(error) })
+        }
+      })
+
+      const e = encargos(ctx, config)
+      const ensayar = ensayo(ctx, e)
+
+      // Codemode: false, o el modelo solo las alcanza desde `execute` (S11)
       await ctx.tool.transform((editor) => {
         editor.add({
-          name: "delegar",
+          name: 'delegar',
           description:
-            "Delegate work to a reparto agent or papel in a new child session (an encargo), or resume one with `sesion`. " +
+            'Delegate work to a reparto agent or papel in a new child session (an encargo), or resume one with `sesion`. ' +
             "Synchronous by default: returns the child's final message. With `background: true` returns at once, and a notice arrives in this conversation when the encargo ends, fails, is interrupted or goes stale.",
           input: {
-            type: "object",
+            type: 'object',
             properties: {
-              a: { type: "string", enum: [...destinos], description: "Agent or papel that takes the encargo. Ignored with `sesion`." },
-              prompt: { type: "string", description: "The brief: goal, context, constraints, acceptance, report." },
-              background: { type: "boolean", description: "Return at once and get a notice when it closes." },
-              sesion: { type: "string", description: "Child session id of an earlier encargo to resume, keeping its history." },
-              skills: { type: "array", items: { type: "string" }, description: "Skill ids to load into the child's first message." },
+              a: {
+                type: 'string',
+                enum: [...destinos],
+                description: 'Agent or papel that takes the encargo. Ignored with `sesion`.',
+              },
+              prompt: { type: 'string', description: 'The brief: goal, context, constraints, acceptance, report.' },
+              background: { type: 'boolean', description: 'Return at once and get a notice when it closes.' },
+              sesion: { type: 'string', description: 'Child session id of an earlier encargo to resume, keeping its history.' },
+              skills: {
+                type: 'array',
+                items: { type: 'string' },
+                description: "Skill ids to load into the child's first message.",
+              },
             },
-            required: ["prompt"],
+            required: ['prompt'],
             additionalProperties: false,
           },
           options: { codemode: false },
           execute: (input, tool) => e.delegar(input, tool),
-        });
+        })
         editor.add({
-          name: "bitacora",
+          name: 'bitacora',
           description:
-            "Show what an encargo did: its tool calls with their key argument, and its final message. `detalle: \"completo\"` adds the (trimmed) results. Works after the child was compacted.",
+            'Show what an encargo did: its tool calls with their key argument, and its final message. `detalle: "completo"` adds the (trimmed) results. Works after the child was compacted.',
           input: {
-            type: "object",
+            type: 'object',
             properties: {
-              id: { type: "string", description: "Child session id of the encargo." },
-              detalle: { type: "string", enum: ["completo"] },
+              id: { type: 'string', description: 'Child session id of the encargo.' },
+              detalle: { type: 'string', enum: ['completo'] },
             },
-            required: ["id"],
+            required: ['id'],
             additionalProperties: false,
           },
           options: { codemode: false },
           execute: (input) => e.bitacora(input),
-        });
+        })
         editor.add({
-          name: "ensayar",
-          description: "Run one synchronous round of the ensayo general on a plan under .reparto/planes/. Fresh parallel critico and oracle encargos; returns verdicts and the acta.",
-          input: { type: "object", properties: { plan: { type: "string", description: "Relative plan path under .reparto/planes/." } }, required: ["plan"], additionalProperties: false },
+          name: 'ensayar',
+          description:
+            'Run one synchronous round of the ensayo general on a plan under .reparto/planes/. Fresh parallel critico and oracle encargos; returns verdicts and the acta.',
+          input: {
+            type: 'object',
+            properties: { plan: { type: 'string', description: 'Relative plan path under .reparto/planes/.' } },
+            required: ['plan'],
+            additionalProperties: false,
+          },
           options: { codemode: false },
           execute: (input, tool) => {
-            if (!input || typeof input !== "object" || !("plan" in input) || typeof input.plan !== "string") throw new Error("ensayar: falta plan");
-            return ensayar({ plan: input.plan }, tool);
+            if (!input || typeof input !== 'object' || !('plan' in input) || typeof input.plan !== 'string')
+              {throw new Error('ensayar: falta plan')}
+            return ensayar({ plan: input.plan }, tool)
           },
-        });
+        })
         editor.add({
-          name: "interrumpir",
+          name: 'interrumpir',
           description:
-            "Interrupt one of your own open encargos (for example a stale one). Only encargos this session launched can be interrupted. " +
-            "The encargo closes as interrumpido and, if it ran in background, its notice arrives as usual.",
+            'Interrupt one of your own open encargos (for example a stale one). Only encargos this session launched can be interrupted. ' +
+            'The encargo closes as interrumpido and, if it ran in background, its notice arrives as usual.',
           input: {
-            type: "object",
-            properties: { id: { type: "string", description: "Child session id of the encargo." } },
-            required: ["id"],
+            type: 'object',
+            properties: { id: { type: 'string', description: 'Child session id of the encargo.' } },
+            required: ['id'],
             additionalProperties: false,
           },
           options: { codemode: false },
           execute: (input, tool) => e.interrumpir(input, tool),
-        });
+        })
         editor.add({
-          name: "pendientes",
+          name: 'pendientes',
           description:
             "Read or rewrite this session's work list. Without `items` it returns the list; with `items` it replaces the whole list and returns it. " +
-            "Survives compaction. Keep one item `en_curso` at a time and mark items `hecho` as soon as they are done.",
+            'Survives compaction. Keep one item `en_curso` at a time and mark items `hecho` as soon as they are done.',
           input: {
-            type: "object",
+            type: 'object',
             properties: {
               items: {
-                type: "array",
+                type: 'array',
                 items: {
-                  type: "object",
-                  properties: { texto: { type: "string" }, estado: { type: "string", enum: [...estados] } },
-                  required: ["texto"],
+                  type: 'object',
+                  properties: { texto: { type: 'string' }, estado: { type: 'string', enum: [...estados] } },
+                  required: ['texto'],
                   additionalProperties: false,
                 },
               },
@@ -236,42 +289,54 @@ export default Plugin.define({
           },
           options: { codemode: false },
           execute: async (input, tool) => {
-            const items = parsearItems(input);
-            const sesion = await ctx.session.get({ sessionID: tool.sessionID });
-            const ref = sesion.agent === "regidor" ? planDeSesion(db(), tool.sessionID) : undefined;
-            const clave = ref ? clavePlan(ref) : tool.sessionID;
-            if (items && ref) {
-              const original = leerPendientes(db(), clave);
-              if (items.length !== original.length || items.some((item, i) => item.texto !== original[i]?.texto)) throw new Error("pendientes: las tareas estrenadas no se pueden agregar, borrar ni renombrar");
-            }
-            if (items && !escribirPendientes(db(), clave, items)) throw new Error("pendientes: no se pudo guardar (SQLite); ver el log de reparto");
-            return { content: formatear(items ?? leerPendientes(db(), clave)) };
-          },
-        });
-      });
-      // session.context pierde las tool calls al compactar (S14): la bitácora se llena acá
-      await ctx.tool.hook("execute.after", (x) => e.registrarLlamada(x.status === "completed" ? { ...x, result: x.result } : { ...x, error: x.error }));
+            const items = parsearItems(input)
+            const sesion = await ctx.session.get({ sessionID: tool.sessionID })
+            const ref = sesion.agent === 'regidor' ? planDeSesion(db(), tool.sessionID) : undefined
+            const clave = ref ? clavePlan(ref) : tool.sessionID
 
-      const stop = new AbortController();
+            if (items && ref) {
+              const original = leerPendientes(db(), clave)
+
+              if (items.length !== original.length || items.some((item, i) => item.texto !== original[i]?.texto))
+                {throw new Error('pendientes: las tareas estrenadas no se pueden agregar, borrar ni renombrar')}
+            }
+
+            if (items && !escribirPendientes(db(), clave, items))
+              {throw new Error('pendientes: no se pudo guardar (SQLite); ver el log de reparto')}
+            return { content: formatear(items ?? leerPendientes(db(), clave)) }
+          },
+        })
+      })
+      // Session.context pierde las tool calls al compactar (S14): la bitácora se llena acá
+      await ctx.tool.hook('execute.after', (x) =>
+        e.registrarLlamada(x.status === 'completed' ? { ...x, result: x.result } : { ...x, error: x.error }),
+      )
+
+      const stop = new AbortController()
+
       void (async () => {
         try {
           for await (const ev of ctx.event.subscribe({ signal: stop.signal })) {
-            e.evento(ev);
-            void c.evento(ev);
+            e.evento(ev)
+            void c.evento(ev)
           }
         } catch (error) {
-          if (!stop.signal.aborted) log.error("suscripción a eventos terminó", { location: ctx.location.directory, error: String(error) });
+          if (!stop.signal.aborted)
+            {log.error('suscripción a eventos terminó', { location: ctx.location.directory, error: String(error) })}
         }
-      })();
-      const vigilante = setInterval(() => void e.vigilar(), 60_000);
-      // sin esperarla, para no bloquear el arranque
-      void e.reconciliar();
+      })()
+
+      const vigilante = setInterval(() => void e.vigilar(), 60_000)
+
+      // Sin esperarla, para no bloquear el arranque
+      void e.reconciliar()
+
       return () => {
-        stop.abort();
-        clearInterval(vigilante);
-      };
+        stop.abort()
+        clearInterval(vigilante)
+      }
     } catch (error) {
-      log.error("inactivo: setup falló", { location: ctx.location.directory, error: String(error) });
+      log.error('inactivo: setup falló', { location: ctx.location.directory, error: String(error) })
     }
   },
-});
+})

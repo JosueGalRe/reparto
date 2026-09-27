@@ -8,15 +8,18 @@ Use this exact structure (replace the placeholders, repeat the task block for T2
 # <Short title>
 
 ## Goal
+
 <One or two sentences describing the outcome.>
 
 ## Scope
+
 - In: <what this plan includes>
 - Out: <what it explicitly excludes>
 
 ## Tasks
 
 ### T1: <short task name>
+
 - Do: <concrete work>
 - Acceptance: <observable result>
 - Verification: <real command or observation that checks the result>
