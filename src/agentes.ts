@@ -139,8 +139,8 @@ export function registrar(editor: AgentEditor) {
       agent.permissions = permissions
     })
 
-  definir('director', 'primary', `${guion('director')}\n\n${seccionShell}`, reglas.director)
-  definir('regidor', 'primary', `${guion('regidor')}\n\n${seccionShell}`, reglas.regidor)
+  definir('director', 'primary', `${guion('director')}\n\n${guion('encargo')}\n\n${seccionShell}`, reglas.director)
+  definir('regidor', 'primary', `${guion('regidor')}\n\n${guion('encargo')}\n\n${seccionShell}`, reglas.regidor)
   definir('dramaturgo', 'primary', `${guion('dramaturgo')}\n\n${seccionShell}`, reglas.dramaturgo)
 
   for (const id of ['utilero', 'tiresias', 'critico']) {

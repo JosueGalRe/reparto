@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+
 import { Agent } from '@opencode/plugin'
 import { expect, test } from 'bun:test'
 
@@ -177,6 +179,12 @@ test("regidor keeps director's read-only rules without inheriting context7", () 
 
   // When: the plugin registers its agents; Then: regidor keeps the read-only rules but not director's MCP grant.
   registrar(editor)
+  const seccionEncargo = readFileSync(new URL('../guiones/encargo.md', import.meta.url), 'utf8').trim()
+
+  for (const nombre of ['director', 'regidor']) {
+    expect(agents.get(nombre)?.system).toContain(seccionEncargo)
+  }
+
   expect(agents.get('regidor')?.mode).toBe('primary')
   expect(agents.get('regidor')?.permissions.slice(0, -2)).toEqual(permisos([]).regidor)
   expect(agents.get('regidor')?.permissions.findLast((regla) => regla.action === 'context7_*')?.effect).toBe('deny')
