@@ -1,3 +1,5 @@
+import { type Plugin, Skill } from '@opencode/plugin'
+
 import { agentesPropios, esActor, etiqueta, modelRef, resolver } from './actores.ts'
 import { conShellDeLectura, motivoNegado, papeles, ruteo } from './agentes.ts'
 import { bajasVigentes, deBaja, suplencias } from './bajas.ts'
@@ -11,7 +13,7 @@ import type { Config } from './config.ts'
 import type { continuacion } from './continuacion.ts'
 import type { encargos } from './encargos.ts'
 import type { ContextoHija, EvaluacionSubagent } from './hooks-types.ts'
-import type { Plugin } from '@opencode/plugin'
+import type { SessionPrompt } from '@opencode/plugin/promise/session'
 
 const debug = !!process.env.REPARTO_DEBUG
 
@@ -72,12 +74,42 @@ export function evaluarSubagent(input: EvaluacionSubagent) {
   input.message = `reparto: ${destino} sin actor disponible${proceso.validacion ? '' : ' (validación pendiente)'}. Bajas: ${bajas.map((baja) => `${baja.id} hasta ${new Date(baja.hasta).toISOString()}`).join(', ') || 'ninguna'}`
 }
 
+export function adjuntarSkill(prompt: SessionPrompt['prompt'], disponibles: readonly { readonly id: string }[]) {
+  const texto = prompt.text.trimStart()
+
+  if (!texto.startsWith('/')) {
+    return
+  }
+
+  const id = texto.slice(1).split(/\s/, 1)[0]
+  const skill = disponibles.find((entry) => entry.id === id)
+
+  if (!skill || prompt.skills?.some((entry) => entry.id === skill.id)) {
+    return
+  }
+
+  prompt.skills ??= []
+  prompt.skills.push({ id: Skill.ID.make(skill.id) })
+}
+
 export async function registrarHooks(
   ctx: Plugin.Context,
   config: Config,
   continuar: ReturnType<typeof continuacion>,
   gestor: Pick<ReturnType<typeof encargos>, 'registrarLlamada'>,
 ) {
+  await ctx.session.hook('prompt', async (input) => {
+    try {
+      if (input.prompt.text.trimStart().startsWith('/')) {
+        const disponibles = await ctx.skill.list()
+
+        adjuntarSkill(input.prompt, disponibles.data)
+      }
+    } catch (error) {
+      log.error('hook prompt skill falló', { sessionID: input.sessionID, error: String(error) })
+    }
+  })
+
   // Sesiones primarias: el actor resuelto se impone en el primer turno y en el primer turno después de que
   // Empiece o termine una baja que lo cambie. El resto del tiempo se respeta el modelo de la sesión, así que un
   // Cambio a mano no se revierte. Lo impuesto va en ctx.storage para que una recarga o un reinicio no lo tomen

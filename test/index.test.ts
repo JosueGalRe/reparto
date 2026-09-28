@@ -79,6 +79,7 @@ test.each([{ debug: false }, { debug: true }])('setup registra los hooks antes d
       'command.transform',
       'session.prompt',
       'session.prompt',
+      'session.prompt',
       'session.context',
       'permission.evaluate',
       ...(debug ? ['session.model.request'] : []),

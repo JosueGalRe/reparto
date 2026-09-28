@@ -25,6 +25,7 @@ Las pruebas con modelo usaron `kimi-code-plan-global/k3#low`, `claude-code/haiku
 | S13 | `session.execution.{started,succeeded,failed,interrupted}`, sin `location`. `wait` vuelve igual en los tres; `session.get().outcome` los distingue                                                                                                | ADR 0009, plan 1.6     |
 | S14 | Completo antes de compactar; después solo queda el resumen                                                                                                                                                                                        | Plan 1.4, 1.6          |
 | S15 | Un `setup` por location y por proceso. Todas las instancias reciben todos los eventos del proceso; los hooks corren solo en la de la sesión, una vez por fallo. Los eventos no cruzan procesos, y una hija cuyo proceso muere queda sin `outcome` | Plan 1.6, riesgos      |
+| S16 | Sí: agregar `{ id: 'tdd' }` a `prompt.skills` desde el hook `prompt` hace que V2 guarde el contenido completo del skill en el mensaje de usuario                                                                                                  | Slash skills por API   |
 
 ---
 
@@ -410,6 +411,22 @@ proceso muerto ses_f26a3c0d7…: {"outcome":null,"time":{"created":1790353096505
 - El escenario de 1.6 "cerrar una [de TUI u OpenChamber] no impide que la otra avise" partía de una premisa falsa. Se reescribió: cerrar un cliente (la TUI) no detiene el servidor ni el encargo; detener el servidor que lo ejecuta sí.
 
 Plan 1.4, 1.6 y riesgos actualizados.
+
+---
+
+## S16: `skills` añadidos en el hook `prompt`
+
+**Pregunta.** ¿V2 resuelve el skill si un plugin añade `{ id: 'tdd' }` a `input.prompt.skills` durante el hook `prompt`, después de recibir texto crudo por `session.prompt`?
+
+**Resultado.** Sí. Con el servidor de desarrollo en `:4297` y un hook temporal que buscaba `tdd` en `ctx.skill.list()` y lo añadía a `input.prompt.skills`, V2 guardó el contenido completo bajo `skills` en el mensaje de usuario. La solicitud original no tenía el campo `skills` ni un slash.
+
+**Evidencia.** `session.prompt` con `{"text":"sonda S16: responde OK","model":{"providerID":"opencode-go","id":"space-bunny-free"}}` en `ses_f15a657ecffelJSu4m6gXR8i5g`; `session.message.list` devolvió:
+
+```
+{"id":"msg_0ea59bb5f001OklgrBCoNBCRYp","text":"sonda S16: responde OK","skills":[{"id":"tdd","name":"tdd","excerpt":"<skill_content name=\"tdd\">\n# Skill: tdd\n\n# Test-Driven Development…"}]}
+```
+
+**Consecuencia.** reparto puede reconocer `/<id>` al comienzo del texto recibido por API y adjuntar el skill existente en el hook `prompt`, sin reescribir el texto. El hook temporal se reemplazó por esa lógica.
 
 ---
 
