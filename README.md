@@ -151,4 +151,4 @@ scripts/publicar.sh                  # fast-forward de main al worktree estable
 
 ## Licencia
 
-Uso personal. Los archivos que traen código o texto de OMO conservan su aviso SUL-1.0 ([ADR 0001](./docs/adr/0001-desde-cero-nativo-v2.md)).
+Uso personal.
