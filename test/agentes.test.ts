@@ -194,12 +194,12 @@ test("regidor keeps director's read-only rules without inheriting context7", () 
   expect(agents.get('build')?.permissions.findLast((regla) => regla.action === 'delegar')?.effect).toBe('deny')
 })
 
-test('MCP permissions only expose context7 to director and archivista, grep_app to archivista', () => {
+test('MCP permissions expose codegraph to all agents, context7 to director and archivista, grep_app to archivista', () => {
   // Given: a permissive base and each registered agent's effective rules.
   const base = [{ action: '*', resource: '*', effect: 'allow' as const }]
   const { director, archivista, subagenteLectura: utilero, papel, regidor, dramaturgo } = permisos(base)
 
-  // When: V2 resolves the last matching permission action; Then: only the designated agents see each server.
+  // When: V2 resolves the last matching permission action; Then: each agent sees only its permitted servers.
   for (const [rules, context7, grepApp] of [
     [director, 'allow', 'deny'],
     [archivista, 'allow', 'allow'],
@@ -210,6 +210,7 @@ test('MCP permissions only expose context7 to director and archivista, grep_app 
   ] as const) {
     expect(rules.findLast((rule) => rule.action === 'context7_*' || rule.action === '*')?.effect).toBe(context7)
     expect(rules.findLast((rule) => rule.action === 'grep_app_*' || rule.action === '*')?.effect).toBe(grepApp)
+    expect(rules.findLast((rule) => rule.action === 'codegraph_*' || rule.action === '*')?.effect).toBe('allow')
   }
 })
 

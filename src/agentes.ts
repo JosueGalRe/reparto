@@ -54,7 +54,7 @@ function soloLectura(base: Rule[], extra: string[]): Rule[] {
   return [
     ...base,
     ...deny('*'),
-    ...allow('read', 'glob', 'grep', 'skill', 'webfetch', 'websearch', ...extra),
+    ...allow('read', 'glob', 'grep', 'codegraph_*', 'skill', 'webfetch', 'websearch', ...extra),
     ...shellDeLectura,
     ...restricciones,
   ]
@@ -77,7 +77,12 @@ const subagentesDeReparto = ['utilero', 'archivista', 'tiresias', ...papeles].ma
 function subagenteSoloLectura(base: Rule[]): Rule[] {
   const restricciones = base.filter((rule) => rule.action === 'read' || rule.action === 'external_directory')
 
-  return [...base, ...deny('*'), ...allow('read', 'glob', 'grep', 'skill', 'webfetch', 'websearch', 'shell'), ...restricciones]
+  return [
+    ...base,
+    ...deny('*'),
+    ...allow('read', 'glob', 'grep', 'codegraph_*', 'skill', 'webfetch', 'websearch', 'shell'),
+    ...restricciones,
+  ]
 }
 
 /** Se agrega al guion de los agentes con shell de lectura: V2 no les muestra qué comandos están permitidos. */
