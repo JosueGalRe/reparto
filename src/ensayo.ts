@@ -160,8 +160,8 @@ export function parsearVeredicto(texto: string): Veredicto {
     }
   }
 
-  if (cabecera === 'VEREDICTO: OBJECIONES' && !objeciones.length) {
-    throw new Error('veredicto inválido: OBJECIONES sin objeción válida')
+  if (cabecera === 'VEREDICTO: OBJECIONES' && !objeciones.length && !Object.values(cierres).includes('abierto')) {
+    throw new Error('veredicto inválido: OBJECIONES sin objeción válida ni acta abierta')
   }
 
   return { veredicto: cabecera === 'VEREDICTO: APROBADO' ? 'APROBADO' : 'OBJECIONES', objeciones, notas, cierres }
@@ -426,8 +426,8 @@ export function ensayo(
     const contexto =
       ronda === 1
         ? 'Round 1: discovery.'
-        : `Closure round ${ronda}. Diff from previous snapshot:\n${diferencia(previo?.contenido ?? '', version.contenido)}\n\nActa:\n${JSON.stringify(acta)}`
-    const prompt = `${contexto}\n\nPlan snapshot (review this exact text):\n${version.contenido}\n\nOutput format: VEREDICTO: APROBADO or VEREDICTO: OBJECIONES; OBJECION: section | concrete defect | cause | closing condition (and round-1 justification for new closure-round objections); ACTA: numeric-id | cerrado/abierto for each acta entry; NOTA: observation.`
+        : `Closure round ${ronda}. Diff from previous snapshot:\n${diferencia(previo?.contenido ?? '', version.contenido)}\n\nActa:\n${JSON.stringify(acta)}\n\nReview only the diff, the acta and regressions caused by fixes. Report every acta entry as ACTA: <numeric id> | cerrado or ACTA: <numeric id> | abierto. For each NEW objection, append a fifth field: <why round 1 could not have found it>. A new issue is admissible only if caused by a fix, previously unverifiable evidence, or a concrete data-loss/security risk. If you cannot justify it, make it a NOTA instead. Approve only when every acta entry is closed and no admissible objection remains.`
+    const prompt = `${contexto}\n\nPlan snapshot (review this exact text):\n${version.contenido}\n\nReturn one line per field, no Markdown fences. First line: VEREDICTO: APROBADO or VEREDICTO: OBJECIONES. Every blocking objection: OBJECION: <section> | <concrete defect> | <cause> | <closing condition>. Optional notes: NOTA: <observation>. Use OBJECIONES if an acta entry is open or an admissible objection remains; otherwise use APROBADO.`
     const resultados = await Promise.allSettled(
       (['critico', 'tiresias'] as const).map(async (revisor) => {
         const hija = await encargos.delegar({ revisor, prompt }, tool, actores[revisor])

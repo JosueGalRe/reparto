@@ -109,6 +109,14 @@ test('malformed objection or acta fails the review rather than approving', () =>
   expect(() => parsearVeredicto('VEREDICTO: APROBADO\nACTA: nonsense')).toThrow(/inválido/)
 })
 
+test('OBJECIONES with only an open acta entry parses in closure rounds', () => {
+  // Given: an unresolved prior objection but no new objection.
+  const texto = 'VEREDICTO: OBJECIONES\nACTA: 1 | abierto'
+
+  // When: the closure review is parsed; Then: the prior objection can keep the round open.
+  expect(parsearVeredicto(texto)).toEqual({ veredicto: 'OBJECIONES', objeciones: [], notas: [], cierres: { 1: 'abierto' } })
+})
+
 test('a malformed reviewer leaves the round pending and relaunches fresh encargos', async () => {
   // Given: one malformed review in a first round and valid reviews on retry.
   const location = join(dir, 'retry')
