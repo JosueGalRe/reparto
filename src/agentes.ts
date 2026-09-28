@@ -106,7 +106,7 @@ export function permisos(base: Rule[]) {
     subagenteLectura: [...subagenteSoloLectura(base), ...deny(...mcpActions)],
     archivista: [...subagenteSoloLectura(base), ...deny(...mcpActions), ...allow(...mcpActions)],
     // Papeles y subagentes no delegan.
-    papel: [...base, ...deny('question', 'subagent', 'delegar', ...mcpActions)],
+    papel: [...base, ...deny('question', 'subagent', 'delegar', 'pty_*', ...mcpActions)],
   }
 }
 

@@ -43,7 +43,7 @@ test('director: la lista permitida va después de negar todo, y las restriccione
   expect(ultima('subagent', 'general')).toBe('deny')
   expect(ultima('read', '*.env')).toBe('ask')
 
-  for (const action of ['question', 'subagent', 'delegar', 'context7_*', 'grep_app_*']) {
+  for (const action of ['question', 'subagent', 'delegar', 'pty_*', 'context7_*', 'grep_app_*']) {
     expect(papel.findLast((regla) => regla.action === action)?.effect).toBe('deny')
   }
 })
