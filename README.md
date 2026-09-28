@@ -63,8 +63,8 @@ El dramaturgo escribe el plan en `.reparto/planes/<slug>.md`. Después viene el 
 OpenCode 2.0.18 (`@opencode/plugin` 2.0.18) y Bun.
 
 ```sh
-git clone <este repo> ~/proyectos/reparto
-cd ~/proyectos/reparto
+git clone https://github.com/JosueGalRe/reparto.git ~/projects/reparto
+cd ~/projects/reparto
 bun install
 ```
 
