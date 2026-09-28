@@ -1,6 +1,20 @@
-import { readFileSync } from 'node:fs'
-
 import { Agent } from '@opencode/plugin'
+
+import archivista from '../guiones/archivista.md' with { type: 'text' }
+import critico from '../guiones/critico.md' with { type: 'text' }
+import director from '../guiones/director.md' with { type: 'text' }
+import dramaturgoTexto from '../guiones/dramaturgo.md' with { type: 'text' }
+import encargo from '../guiones/encargo.md' with { type: 'text' }
+import estelar from '../guiones/estelar.md' with { type: 'text' }
+import papel from '../guiones/papel.md' with { type: 'text' }
+import prosa from '../guiones/prosa.md' with { type: 'text' }
+import protagonista from '../guiones/protagonista.md' with { type: 'text' }
+import rapido from '../guiones/rapido.md' with { type: 'text' }
+import regidor from '../guiones/regidor.md' with { type: 'text' }
+import ruteoTexto from '../guiones/ruteo.md' with { type: 'text' }
+import tiresias from '../guiones/tiresias.md' with { type: 'text' }
+import utilero from '../guiones/utilero.md' with { type: 'text' }
+import visual from '../guiones/visual.md' with { type: 'text' }
 
 import type { Validacion } from './actores.ts'
 import type { AgentEditor } from '@opencode/plugin/promise/agent'
@@ -9,7 +23,24 @@ export const papeles = ['rapido', 'visual', 'protagonista', 'estelar', 'prosa'] 
 /** Agentes con shell de lectura restringido. */
 export const conShellDeLectura = new Set(['director', 'dramaturgo', 'regidor'])
 
-const guion = (nombre: string) => readFileSync(new URL(`../guiones/${nombre}.md`, import.meta.url), 'utf8').trim()
+const guiones = {
+  archivista,
+  critico,
+  director,
+  dramaturgo: dramaturgoTexto,
+  encargo,
+  estelar,
+  papel,
+  prosa,
+  protagonista,
+  rapido,
+  regidor,
+  ruteo: ruteoTexto,
+  tiresias,
+  utilero,
+  visual,
+}
+const guion = (nombre: keyof typeof guiones) => guiones[nombre].trim()
 
 interface Rule {
   action: string
@@ -148,7 +179,7 @@ export function registrar(editor: AgentEditor) {
   definir('regidor', 'primary', `${guion('regidor')}\n\n${guion('encargo')}\n\n${seccionShell}`, reglas.regidor)
   definir('dramaturgo', 'primary', `${guion('dramaturgo')}\n\n${seccionShell}`, reglas.dramaturgo)
 
-  for (const id of ['utilero', 'tiresias', 'critico']) {
+  for (const id of ['utilero', 'tiresias', 'critico'] as const) {
     definir(id, 'subagent', guion(id), reglas.subagenteLectura)
   }
 

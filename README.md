@@ -66,6 +66,9 @@ OpenCode 2.0.18 (`@opencode/plugin` 2.0.18) y Bun.
 git clone https://github.com/JosueGalRe/reparto.git ~/projects/reparto
 cd ~/projects/reparto
 bun install
+bun run build
+mkdir -p ~/.local/share/reparto/plugin
+cp dist/server.js schema/reparto.schema.json ~/.local/share/reparto/plugin/
 ```
 
 Registra el plugin en tu `opencode.json`:
@@ -74,7 +77,7 @@ Registra el plugin en tu `opencode.json`:
 {
   "plugins": [
     {
-      "package": "file:///ruta/a/reparto",
+      "package": "file:///home/usuario/.local/share/reparto/plugin",
       "options": { "config": "~/.config/opencode/reparto.jsonc" }
     }
   ]
@@ -85,7 +88,7 @@ Registra el plugin en tu `opencode.json`:
 
 ```jsonc
 {
-  "$schema": "/ruta/a/reparto/schema/reparto.schema.json",
+  "$schema": "/home/usuario/.local/share/reparto/plugin/reparto.schema.json",
   "fallosInternos": 3,
   "agentes": {
     "director": {
@@ -136,10 +139,11 @@ Y un comando: `/estreno .reparto/planes/<plan>.md [con-objeciones]` estrena un p
 ```sh
 bun run check                        # tipos, lint, formato y tests
 scripts/run.sh serve --port 4297     # servidor aislado, con su propio REPARTO_DATA_DIR en /tmp
-scripts/publicar.sh                  # fast-forward de main al worktree estable
+bun run build                        # dist/server.js autocontenido
+scripts/publicar.sh [destino-ssh]    # instala local y, opcionalmente, por ssh
 ```
 
-`scripts/run.sh` usa `scripts/config` como config global y nunca toca el servidor diario. El estado de reparto (SQLite y log) vive en `REPARTO_DATA_DIR`, por defecto `$XDG_DATA_HOME/reparto`. Lo que corre a diario es el worktree en `~/.local/share/reparto/estable`, que `scripts/publicar.sh` actualiza desde `main`.
+`scripts/run.sh` usa `scripts/config` como config global y nunca toca el servidor diario. El estado de reparto (SQLite y log) vive en `REPARTO_DATA_DIR`, por defecto `$XDG_DATA_HOME/reparto`. `scripts/publicar.sh` actualiza el worktree estable desde `main`, construye el bundle e instala `server.js` y el schema en `~/.local/share/reparto/plugin/`; con un destino como `ssh://usuario@host:puerto`, también los instala en esa ruta del remoto. El remoto solo necesita Bun y OpenCode, no el repo ni `node_modules`.
 
 ## Documentación
 

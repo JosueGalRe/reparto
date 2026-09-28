@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "build": "bun build --target bun --outfile dist/server.js server.ts",
     "test": "bun test",
     "typecheck": "tsc --noEmit",
     "lint": "oxlint -c oxlint.config.js .",
