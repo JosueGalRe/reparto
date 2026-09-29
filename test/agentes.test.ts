@@ -41,11 +41,10 @@ test('director: la lista permitida va después de negar todo, y las restriccione
   expect(ultima('edit')).toBe('deny')
   expect(ultima('pty_spawn')).toBe('deny')
   expect(ultima('execute')).toBe('deny')
-  expect(ultima('delegar')).toBe('deny')
   expect(ultima('subagent', 'general')).toBe('deny')
   expect(ultima('read', '*.env')).toBe('ask')
 
-  for (const action of ['question', 'subagent', 'delegar', 'pty_*', 'context7_*', 'grep_app_*']) {
+  for (const action of ['question', 'subagent', 'pty_*', 'context7_*', 'grep_app_*']) {
     expect(papel.findLast((regla) => regla.action === action)?.effect).toBe('deny')
   }
 })
@@ -104,7 +103,7 @@ test('utilero: shell abierto, edición y delegación negadas', () => {
     expect(efecto('shell', command)).toBe('allow')
   }
 
-  for (const tool of ['edit', 'write', 'patch', 'subagent', 'delegar', 'interrumpir']) {
+  for (const tool of ['edit', 'write', 'patch', 'subagent', 'interrumpir']) {
     expect(efecto(tool, '*')).toBe('deny')
   }
 })
@@ -118,7 +117,7 @@ test('dramaturgo puede ensayar y leer bitacora; critico sigue siendo de solo lec
     expect(dramaturgo.findLast((regla) => regla.action === nombre || regla.action === '*')?.effect).toBe('allow')
   }
 
-  for (const nombre of ['edit', 'write', 'patch', 'delegar', 'ensayar']) {
+  for (const nombre of ['edit', 'write', 'patch', 'ensayar']) {
     expect(subagenteLectura.findLast((regla) => regla.action === nombre || regla.action === '*')?.effect).toBe('deny')
   }
 
@@ -142,8 +141,6 @@ test('director y regidor limitan subagent a agentes de reparto; dramaturgo solo 
     for (const agente of ['general', 'explore']) {
       expect(effect(rules, 'subagent', agente)).toBe('deny')
     }
-
-    expect(effect(rules, 'delegar', '*')).toBe('deny')
   }
 
   for (const agent of ['utilero', 'archivista', 'tiresias']) {
@@ -151,7 +148,6 @@ test('director y regidor limitan subagent a agentes de reparto; dramaturgo solo 
   }
 
   expect(effect(dramaturgo, 'subagent', 'rapido')).toBe('deny')
-  expect(effect(dramaturgo, 'delegar', '*')).toBe('deny')
 })
 
 test("regidor keeps director's read-only rules without inheriting context7", () => {
@@ -191,7 +187,6 @@ test("regidor keeps director's read-only rules without inheriting context7", () 
   expect(agents.get('archivista')?.permissions.findLast((regla) => regla.action === 'grep_app_*')?.effect).toBe('allow')
   expect(agents.get('general')?.permissions.findLast((regla) => regla.action === 'grep_app_*')?.effect).toBe('deny')
   expect(agents.get('build')?.permissions.findLast((regla) => regla.action === 'subagent')?.effect).toBe('allow')
-  expect(agents.get('build')?.permissions.findLast((regla) => regla.action === 'delegar')?.effect).toBe('deny')
 })
 
 test('MCP permissions expose codegraph to all agents, context7 to director and archivista, grep_app to archivista', () => {

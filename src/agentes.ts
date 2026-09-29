@@ -142,7 +142,7 @@ export function permisos(base: Rule[]) {
     subagenteLectura: [...subagenteSoloLectura(base), ...deny(...mcpActions)],
     archivista: [...subagenteSoloLectura(base), ...deny(...mcpActions), ...allow(...mcpActions)],
     // Papeles y subagentes no delegan.
-    papel: [...base, ...deny('question', 'subagent', 'delegar', 'pty_*', ...mcpActions)],
+    papel: [...base, ...deny('question', 'subagent', 'pty_*', ...mcpActions)],
   }
 }
 
@@ -192,7 +192,7 @@ export function registrar(editor: AgentEditor) {
 
   editor.update('build', (agent) => {
     agent.name = Agent.Name.make('Solista')
-    agent.permissions.push(...allow('subagent'), ...deny('delegar', ...mcpActions))
+    agent.permissions.push(...allow('subagent'), ...deny(...mcpActions))
   })
 
   for (const agent of editor.list()) {
