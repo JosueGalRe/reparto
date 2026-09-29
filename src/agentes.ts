@@ -191,6 +191,7 @@ export function registrar(editor: AgentEditor) {
   }
 
   editor.update('build', (agent) => {
+    agent.name = Agent.Name.make('Solista')
     agent.permissions.push(...allow('subagent'), ...deny('delegar', ...mcpActions))
   })
 
