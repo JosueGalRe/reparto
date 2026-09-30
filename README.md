@@ -21,17 +21,17 @@ Las bajas viven en SQLite y las comparten todos los procesos de OpenCode: una cu
 
 ## Los agentes
 
-El vocabulario canónico está en [`CONTEXT.md`](./CONTEXT.md). reparto no define agentes: los agentes son de V2, nativos o de la config (`agents/*.md`). Los míos:
+El vocabulario canónico está en [`CONTEXT.md`](./CONTEXT.md). El plugin no inyecta agentes: son de V2, nativos o de la config (`agents/*.md`). Los que usa el ensayo están en [`agentes/`](./agentes/) y se copian (o se enlazan) a la config:
 
-| Agente       | Qué es                                                                   | Dónde vive                | Antes en OMO      |
-| ------------ | ------------------------------------------------------------------------ | ------------------------- | ----------------- |
-| `build`      | Solista: trabajo directo y ejecución de planes aprobados.                | nativo                    | `sisyphus`        |
-| `plan`       | Compositor: entrevista, escribe el plan, lo ensaya y lo manda a revisar. | nativo + `agents/plan.md` | `prometheus`      |
-| `explore`    | Explora el código del repo. Solo lectura.                                | nativo + `opencode.json`  | `explore`         |
-| `general`    | Lo que Solista delegue para implementar.                                 | nativo                    | `sisyphus-junior` |
-| `archivista` | Busca documentación y código fuera del repo.                             | `agents/archivista.md`    | `librarian`       |
-| `tiresias`   | Consulta de solo lectura para decisiones difíciles; revisa planes.       | `agents/tiresias.md`      | `oracle`          |
-| `critico`    | Revisa planes en el ensayo general.                                      | `agents/critico.md`       | `momus`           |
+| Agente       | Qué es                                                                   | Dónde vive                 | Antes en OMO      |
+| ------------ | ------------------------------------------------------------------------ | -------------------------- | ----------------- |
+| `build`      | Solista: trabajo directo y ejecución de planes aprobados.                | nativo                     | `sisyphus`        |
+| `plan`       | Compositor: entrevista, escribe el plan, lo ensaya y lo manda a revisar. | nativo + `agentes/plan.md` | `prometheus`      |
+| `explore`    | Explora el código del repo. Solo lectura.                                | nativo + `opencode.json`   | `explore`         |
+| `general`    | Lo que Solista delegue para implementar.                                 | nativo                     | `sisyphus-junior` |
+| `archivista` | Busca documentación y código fuera del repo.                             | `agentes/archivista.md`    | `librarian`       |
+| `tiresias`   | Consulta de solo lectura para decisiones difíciles; revisa planes.       | `agentes/tiresias.md`      | `oracle`          |
+| `critico`    | Revisa planes en el ensayo general.                                      | `agentes/critico.md`       | `momus`           |
 
 `build` y `plan` se muestran como Solista y Compositor: el config de V2 no tiene `name`, así que ese renombre lo hace el plugin.
 
@@ -50,37 +50,19 @@ El Compositor entrevista, escribe el plan y lo pasa por el ensayo general con `e
 - **Guiones en inglés, identificadores en español.** El resto del contexto del modelo está en inglés; el dominio en español resalta y no choca con el stack. [ADR 0008](./docs/adr/0008-guiones-propios-en-ingles.md), [ADR 0003](./docs/adr/0003-identificadores-en-espanol.md)
 - **Fuera de alcance.** Hashline edit, grep y glob propios, team mode, keyword modes: vuelven solo si se extrañan en uso real. [ADR 0005](./docs/adr/0005-fuera-de-alcance.md)
 
-## Requisitos e instalación
+## Instalación
 
-OpenCode 2.0.18 o posterior (`@opencode/plugin` 2.0.18) y Bun.
+OpenCode 2.0.18 o posterior, git y curl. En cualquier PC:
 
 ```sh
-git clone https://github.com/JosueGalRe/reparto.git ~/projects/reparto
-cd ~/projects/reparto
-bun install
-bun run build
-mkdir -p ~/.local/share/reparto/plugin
-cp dist/server.js schema/reparto.schema.json ~/.local/share/reparto/plugin/
+curl -fsSL https://raw.githubusercontent.com/JosueGalRe/reparto/estable/scripts/instalar.sh | sh
 ```
 
-Registra el plugin en tu `opencode.json`:
-
-```json
-{
-  "plugins": [
-    {
-      "package": "file:///home/usuario/.local/share/reparto/plugin",
-      "options": { "config": "~/.config/opencode/reparto.jsonc" }
-    }
-  ]
-}
-```
-
-`options.config` es opcional; por defecto lee `~/.config/opencode/reparto.jsonc`. Un `reparto.jsonc` mínimo:
+[`scripts/instalar.sh`](./scripts/instalar.sh) agrega `github:JosueGalRe/reparto#estable` y plannotator a `plugins` en `~/.config/opencode/opencode.json` (con respaldo; los comentarios del JSONC se pierden), copia los agentes de [`agentes/`](./agentes/) a `~/.config/opencode/agents/` y, si no hay `reparto.jsonc`, deja [`reparto.ejemplo.jsonc`](./reparto.ejemplo.jsonc), repartido para GitHub Copilot y Kiro. Volver a correrlo actualiza los agentes sin tocar tu `reparto.jsonc`. V2 instala el plugin desde git y Bun lo carga sin compilar. El plugin lee `~/.config/opencode/reparto.jsonc`, o la ruta de `options.config`. Un `reparto.jsonc` mínimo:
 
 ```jsonc
 {
-  "$schema": "/home/usuario/.local/share/reparto/plugin/reparto.schema.json",
+  "$schema": "https://raw.githubusercontent.com/JosueGalRe/reparto/estable/schema/reparto.schema.json",
   "fallosInternos": 3,
   "agentes": {
     "build": {
@@ -99,7 +81,7 @@ Registra el plugin en tu `opencode.json`:
 
 Cada reparto es `{ titular, suplentes? }` y cada actor es `{ model: "<providerID>/<modelID>", variant? }`. El variant es el id exacto del catálogo de V2; si lo omites, corre el default del proveedor. `fallosInternos` es cuántos 5xx o timeouts seguidos aguanta un actor antes de que entre su suplente (default 3). `plazoBaja` (`"30m"`, `"5h"`, `"7d"`) es cuánto dura una baja por cuota si el proveedor no informa el reset. Un agente sin entrada queda en manos de V2: sus hijas heredan el modelo del padre. Si la config no cumple el schema, el plugin queda inactivo y lo dice en el log.
 
-Para el ensayo hacen falta los agentes `critico` y `tiresias` en la config de V2, con entrada en `reparto.jsonc`, y el Compositor tiene que saber usar `ensayar`. Los míos están en mis dotfiles (`opencode/agents/`); sirven de ejemplo. Los agentes de solo lectura repiten al final las restricciones de la base, porque gana la última regla que coincide.
+Para el ensayo hacen falta los agentes `critico` y `tiresias` en la config de V2, con entrada en `reparto.jsonc`, y el Compositor tiene que saber usar `ensayar`: son los de [`agentes/`](./agentes/). Los agentes de solo lectura repiten al final las restricciones de la base, porque gana la última regla que coincide.
 
 ## Tools
 
@@ -114,10 +96,10 @@ Para el ensayo hacen falta los agentes `critico` y `tiresias` en la config de V2
 bun run check                        # tipos, lint, formato y tests
 scripts/run.sh serve --port 4297     # servidor aislado, con su propio REPARTO_DATA_DIR en /tmp
 bun run build                        # dist/server.js autocontenido
-scripts/publicar.sh [destino-ssh]    # instala local y, opcionalmente, por ssh
+scripts/publicar.sh [destino-ssh]    # empuja estable e instala el bundle local (y por ssh)
 ```
 
-`scripts/run.sh` usa `scripts/config` como config global y nunca toca el servidor diario; `scripts/config/agents` apunta a los agentes de mis dotfiles, y el `reparto.jsonc` de desarrollo va en `/tmp/reparto-dev/reparto.jsonc`. El estado de reparto (SQLite y log) vive en `REPARTO_DATA_DIR`, por defecto `$XDG_DATA_HOME/reparto`. `scripts/publicar.sh` actualiza el worktree estable desde `main`, construye el bundle e instala `server.js` y el schema en `~/.local/share/reparto/plugin/`; con un destino como `ssh://usuario@host:puerto`, también los instala en esa ruta del remoto. El remoto solo necesita Bun y OpenCode, no el repo ni `node_modules`.
+`scripts/run.sh` usa `scripts/config` como config global y nunca toca el servidor diario; `scripts/config/agents` apunta a [`agentes/`](./agentes/), y el `reparto.jsonc` de desarrollo va en `/tmp/reparto-dev/reparto.jsonc`. El estado de reparto (SQLite y log) vive en `REPARTO_DATA_DIR`, por defecto `$XDG_DATA_HOME/reparto`. `scripts/publicar.sh` actualiza el worktree estable desde `main`, empuja la rama `estable` a GitHub (la que instala `instalar.sh`), construye el bundle e instala `server.js` y el schema en `~/.local/share/reparto/plugin/`; con un destino como `ssh://usuario@host:puerto`, también los instala en esa ruta del remoto. El remoto solo necesita Bun y OpenCode, no el repo ni `node_modules`.
 
 ## Documentación
 

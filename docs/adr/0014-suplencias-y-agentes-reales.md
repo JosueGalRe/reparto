@@ -9,7 +9,7 @@ reparto deja de orquestar. Queda lo que funciona sin que el modelo coopere, más
 - **Ensayo general** antes de `submit_plan` (plannotator), obligatorio.
 - **Nombres visibles**: `build` se muestra como Solista y `plan` como Compositor. El config de V2 no tiene `name`, así que eso queda en el plugin.
 
-Los agentes viven en la config de V2 como agentes reales, no inyectados por el plugin: `tiresias`, `critico`, `archivista` y el guion del Compositor (`plan.md`) están en `agents/*.md` de los dotfiles. V2 los recarga en caliente, así que cambiar un guion ya no pide `build` y `publicar`. Con `utilero` no hace falta un agente: su papel lo cubre el `explore` nativo, con `shell`, `codegraph_*` y `skill` agregados en `opencode.json`.
+Los agentes viven en la config de V2 como agentes reales, no inyectados por el plugin: `tiresias`, `critico`, `archivista` y el guion del Compositor (`plan.md`) están en `agentes/` del repo, y la config los enlaza (en mi PC) o los copia (`scripts/instalar.sh`, en las que no tienen mis dotfiles). V2 los recarga en caliente, así que cambiar un guion ya no pide `build` y `publicar`. Con `utilero` no hace falta un agente: su papel lo cubre el `explore` nativo, con `shell`, `codegraph_*` y `skill` agregados en `opencode.json`.
 
 Se van el director, el regidor, `/estreno`, la continuación, los papeles, el shell de solo lectura, `bitacora`, `interrumpir` y `migrate-omo`.
 
@@ -25,7 +25,7 @@ El Compositor es el `plan` nativo porque plannotator ya lo tiene como agente de 
 
 - Dejar al director con el shell abierto. La queja era el shell, pero Bryan no usaba al director, y sin permisos que lo obliguen un modelo delega 0.1 tareas por sesión (ADR 0006).
 - Subagentes con nombre de modelo (`sol`, `k3`). Un agente que se llama `sol` y corre K3 cuando `sol` está de baja miente sobre lo que es.
-- Guiones en el repo. Cada cambio pedía `build` y `publicar`; en los dotfiles V2 los recarga solo.
+- Guiones en los dotfiles. Fue la primera versión, pero la PC del trabajo no tiene mis dotfiles, y los guiones son parte del contrato de `ensayar`: viajan con el plugin.
 - `ensayar` leyendo el directorio del `plan` nativo. Con plannotator el plan nunca llega ahí, y leer el archivo de plannotator ata a reparto a sus detalles internos.
 
 ## Consequences
