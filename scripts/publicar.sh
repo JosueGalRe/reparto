@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Publica main y construye el plugin en el worktree estable.
+# Publica main: la rama estable en GitHub (la que instala scripts/instalar.sh) y el plugin de esta PC.
 git -C ~/.local/share/reparto/estable merge --ff-only main
+git -C ~/.local/share/reparto/estable push origin estable
 cd ~/.local/share/reparto/estable
 bun install --frozen-lockfile
 bun run build

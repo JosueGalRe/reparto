@@ -2,6 +2,9 @@
   "name": "reparto",
   "private": true,
   "type": "module",
+  "exports": {
+    ".": "./server.ts"
+  },
   "scripts": {
     "build": "bun build --target bun --outfile dist/server.js server.ts",
     "test": "bun test",

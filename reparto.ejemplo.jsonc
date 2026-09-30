@@ -1,0 +1,46 @@
+// Reparto para una PC con GitHub Copilot y Kiro (la del trabajo). instalar.sh lo copia si no hay reparto.jsonc.
+// Sin variants: corre el default de cada proveedor. Para fijar uno, usa el id exacto que liste `opencode models`;
+// Un variant que no existe deja fuera a ese actor (lo avisa el log de reparto).
+// Opus y Sol están en los dos proveedores: si uno se queda sin cuota, el mismo modelo sigue en el otro.
+{
+  "$schema": "https://raw.githubusercontent.com/JosueGalRe/reparto/estable/schema/reparto.schema.json",
+  "agentes": {
+    // Solista
+    "build": {
+      "titular": { "model": "github-copilot/claude-opus-5.5" },
+      "suplentes": [
+        { "model": "kiro/claude-opus-5-5" },
+        { "model": "github-copilot/gpt-6.1-sol" },
+        { "model": "kiro/gpt-5-6-sol" },
+      ],
+    },
+    // Compositor
+    "plan": {
+      "titular": { "model": "github-copilot/claude-opus-5.5" },
+      "suplentes": [{ "model": "kiro/claude-opus-5-5" }, { "model": "github-copilot/gpt-6.1-sol" }],
+    },
+    // Lo que Solista delegue para implementar
+    "general": {
+      "titular": { "model": "github-copilot/gpt-6.1-sol" },
+      "suplentes": [{ "model": "kiro/gpt-5-6-sol" }, { "model": "github-copilot/kimi-k3" }],
+    },
+    "explore": {
+      "titular": { "model": "github-copilot/gpt-6-luna" },
+      "suplentes": [{ "model": "kiro/claude-haiku-4-5" }, { "model": "github-copilot/gemini-3.8-flash" }],
+    },
+    "archivista": {
+      "titular": { "model": "github-copilot/gpt-6-luna" },
+      "suplentes": [{ "model": "kiro/claude-haiku-4-5" }, { "model": "github-copilot/gemini-3.8-flash" }],
+    },
+    // Revisores del ensayo: con dos proveedores no alcanza para separarlos del Compositor, así que el ensayo corre
+    // Con GPT en Kiro y en Copilot ("proveedores repetidos") mientras el Compositor usa Opus.
+    "tiresias": {
+      "titular": { "model": "github-copilot/gpt-6.1-sol" },
+      "suplentes": [{ "model": "kiro/gpt-5-6-sol" }, { "model": "kiro/claude-opus-5-5" }],
+    },
+    "critico": {
+      "titular": { "model": "kiro/gpt-5-6-sol" },
+      "suplentes": [{ "model": "github-copilot/gpt-6.1-sol" }, { "model": "github-copilot/claude-opus-5.5" }],
+    },
+  },
+}
