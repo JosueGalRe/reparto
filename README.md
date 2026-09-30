@@ -11,8 +11,8 @@ Cada agente de V2 con entrada en `reparto.jsonc` tiene un actor titular (un mode
 ```mermaid
 flowchart LR
     tu([tú]) --> solista[Solista · build]
-    tu --> dramaturgo[Dramaturgo · plan]
-    solista & dramaturgo --> titular
+    tu --> compositor[Compositor · plan]
+    solista & compositor --> titular
     titular -.->|baja| suplente1[suplente 1]
     suplente1 -.->|baja| suplente2[suplente 2]
 ```
@@ -26,18 +26,18 @@ El vocabulario canónico está en [`CONTEXT.md`](./CONTEXT.md). reparto no defin
 | Agente       | Qué es                                                                   | Dónde vive                | Antes en OMO      |
 | ------------ | ------------------------------------------------------------------------ | ------------------------- | ----------------- |
 | `build`      | Solista: trabajo directo y ejecución de planes aprobados.                | nativo                    | `sisyphus`        |
-| `plan`       | Dramaturgo: entrevista, escribe el plan, lo ensaya y lo manda a revisar. | nativo + `agents/plan.md` | `prometheus`      |
+| `plan`       | Compositor: entrevista, escribe el plan, lo ensaya y lo manda a revisar. | nativo + `agents/plan.md` | `prometheus`      |
 | `explore`    | Explora el código del repo. Solo lectura.                                | nativo + `opencode.json`  | `explore`         |
 | `general`    | Lo que Solista delegue para implementar.                                 | nativo                    | `sisyphus-junior` |
 | `archivista` | Busca documentación y código fuera del repo.                             | `agents/archivista.md`    | `librarian`       |
 | `tiresias`   | Consulta de solo lectura para decisiones difíciles; revisa planes.       | `agents/tiresias.md`      | `oracle`          |
 | `critico`    | Revisa planes en el ensayo general.                                      | `agents/critico.md`       | `momus`           |
 
-`build` y `plan` se muestran como Solista y Dramaturgo: el config de V2 no tiene `name`, así que ese renombre lo hace el plugin.
+`build` y `plan` se muestran como Solista y Compositor: el config de V2 no tiene `name`, así que ese renombre lo hace el plugin.
 
 ## Planes
 
-El Dramaturgo entrevista, escribe el plan y lo pasa por el ensayo general con `ensayar`: el crítico y tiresias lo revisan en paralelo, cada uno en un proveedor distinto, en rondas hasta que ambos aprueban la misma versión. Las objeciones aceptadas en la primera ronda se congelan en el acta; las siguientes solo verifican que se cierren. Recién con el ensayo cerrado (o en la ronda 5, cuando decido yo) reparto deja pasar `submit_plan`, que abre la revisión de [plannotator](https://github.com/backnotprop/plannotator). Lo que apruebo ahí lo ejecuta Solista.
+El Compositor entrevista, escribe el plan y lo pasa por el ensayo general con `ensayar`: el crítico y tiresias lo revisan en paralelo, cada uno en un proveedor distinto, en rondas hasta que ambos aprueban la misma versión. Las objeciones aceptadas en la primera ronda se congelan en el acta; las siguientes solo verifican que se cierren. Recién con el ensayo cerrado (o en la ronda 5, cuando decido yo) reparto deja pasar `submit_plan`, que abre la revisión de [plannotator](https://github.com/backnotprop/plannotator). Lo que apruebo ahí lo ejecuta Solista.
 
 ## Opiniones
 
@@ -99,13 +99,13 @@ Registra el plugin en tu `opencode.json`:
 
 Cada reparto es `{ titular, suplentes? }` y cada actor es `{ model: "<providerID>/<modelID>", variant? }`. El variant es el id exacto del catálogo de V2; si lo omites, corre el default del proveedor. `fallosInternos` es cuántos 5xx o timeouts seguidos aguanta un actor antes de que entre su suplente (default 3). `plazoBaja` (`"30m"`, `"5h"`, `"7d"`) es cuánto dura una baja por cuota si el proveedor no informa el reset. Un agente sin entrada queda en manos de V2: sus hijas heredan el modelo del padre. Si la config no cumple el schema, el plugin queda inactivo y lo dice en el log.
 
-Para el ensayo hacen falta los agentes `critico` y `tiresias` en la config de V2, con entrada en `reparto.jsonc`, y el Dramaturgo tiene que saber usar `ensayar`. Los míos están en mis dotfiles (`opencode/agents/`); sirven de ejemplo. Los agentes de solo lectura repiten al final las restricciones de la base, porque gana la última regla que coincide.
+Para el ensayo hacen falta los agentes `critico` y `tiresias` en la config de V2, con entrada en `reparto.jsonc`, y el Compositor tiene que saber usar `ensayar`. Los míos están en mis dotfiles (`opencode/agents/`); sirven de ejemplo. Los agentes de solo lectura repiten al final las restricciones de la base, porque gana la última regla que coincide.
 
 ## Tools
 
 | Tool         | Qué hace                                                                                                                |
 | ------------ | ----------------------------------------------------------------------------------------------------------------------- |
-| `ensayar`    | Solo para el Dramaturgo. Corre una ronda del ensayo general sobre el texto del plan; devuelve los veredictos y el acta. |
+| `ensayar`    | Solo para el Compositor. Corre una ronda del ensayo general sobre el texto del plan; devuelve los veredictos y el acta. |
 | `pendientes` | Lee o reescribe la lista de trabajo de la sesión. Sobrevive a la compactación.                                          |
 
 ## Desarrollo

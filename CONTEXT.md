@@ -46,9 +46,9 @@ _Avoid_: todos, tareas
 El agente nativo con el que se trabaja: implementa y ejecuta los planes aprobados.
 _Avoid_: director, Sisyphus
 
-**Dramaturgo** (`plan`):
+**Compositor** (`plan`):
 El agente nativo de planificación con el guion de reparto: entrevista, escribe el plan, lo ensaya y lo manda a plannotator.
-_Avoid_: planificador, Prometheus
+_Avoid_: planificador, Dramaturgo, Prometheus
 
 **Crítico** (`critico`):
 Agente que revisa planes en el ensayo general.
@@ -64,7 +64,7 @@ _Avoid_: librarian
 ### Planes
 
 **Plan**:
-Documento del Dramaturgo con las tareas que ejecuta Solista.
+Documento del Compositor con las tareas que ejecuta Solista.
 _Avoid_: boulder, spec
 
 **Ensayo general**:
