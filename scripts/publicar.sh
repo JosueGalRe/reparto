@@ -6,7 +6,7 @@ git -C ~/.local/share/reparto/estable merge --ff-only main
 git -C ~/.local/share/reparto/estable push origin estable
 cd ~/.local/share/reparto/estable
 bun install --frozen-lockfile
-bun run build
+bun run bundle
 
 plugin="$HOME/.local/share/reparto/plugin"
 mkdir -p "$plugin"

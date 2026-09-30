@@ -95,7 +95,7 @@ Para el ensayo hacen falta los agentes `critico` y `tiresias` en la config de V2
 ```sh
 bun run check                        # tipos, lint, formato y tests
 scripts/run.sh serve --port 4297     # servidor aislado, con su propio REPARTO_DATA_DIR en /tmp
-bun run build                        # dist/server.js autocontenido
+bun run bundle                       # dist/server.js autocontenido
 scripts/publicar.sh [destino-ssh]    # empuja estable e instala el bundle local (y por ssh)
 ```
 
