@@ -58,7 +58,7 @@ OpenCode 2.0.18 o posterior, git y curl. En cualquier PC:
 curl -fsSL https://raw.githubusercontent.com/JosueGalRe/reparto/estable/scripts/instalar.sh | sh
 ```
 
-[`scripts/instalar.sh`](./scripts/instalar.sh) agrega `github:JosueGalRe/reparto#estable` y plannotator a `plugins` en `~/.config/opencode/opencode.json` (con respaldo; los comentarios del JSONC se pierden), copia los agentes de [`agentes/`](./agentes/) a `~/.config/opencode/agents/` y, si no hay `reparto.jsonc`, deja [`reparto.ejemplo.jsonc`](./reparto.ejemplo.jsonc), repartido para GitHub Copilot y Kiro. Volver a correrlo actualiza los agentes sin tocar tu `reparto.jsonc`. V2 instala el plugin desde git y Bun lo carga sin compilar. El plugin lee `~/.config/opencode/reparto.jsonc`, o la ruta de `options.config`. Un `reparto.jsonc` mínimo:
+[`scripts/instalar.sh`](./scripts/instalar.sh) agrega `github:JosueGalRe/reparto#estable` y plannotator a `plugins` en `~/.config/opencode/opencode.json` (con respaldo; los comentarios del JSONC se pierden), copia los agentes de [`agentes/`](./agentes/) a `~/.config/opencode/agents/` y, si no hay `reparto.jsonc`, deja [`reparto.ejemplo.jsonc`](./reparto.ejemplo.jsonc), repartido para GitHub Copilot y Kiro. Volver a correrlo actualiza el plugin (V2 fija el commit instalado y lo trae con `plugin.update`) y los agentes, sin tocar tu `reparto.jsonc`. V2 instala el plugin desde git y Bun lo carga sin compilar. El plugin lee `~/.config/opencode/reparto.jsonc`, o la ruta de `options.config`. Un `reparto.jsonc` mínimo:
 
 ```jsonc
 {

@@ -1,6 +1,6 @@
 #!/bin/sh
-# Instala reparto en esta PC: registra el plugin (desde GitHub) y plannotator en el config de OpenCode, baja los
-# Agentes y, si no hay, un reparto.jsonc de ejemplo. Necesita opencode, git y curl.
+# Instala o actualiza reparto en esta PC: registra el plugin (desde GitHub) y plannotator en el config de OpenCode,
+# Baja los agentes y, si no hay, un reparto.jsonc de ejemplo. Necesita opencode, git y curl.
 #   curl -fsSL https://raw.githubusercontent.com/JosueGalRe/reparto/estable/scripts/instalar.sh | sh
 set -eu
 
@@ -11,10 +11,13 @@ config="$HOME/.config/opencode"
 opencode_json="$config/opencode.json"
 [ -e "$config/opencode.jsonc" ] && opencode_json="$config/opencode.jsonc"
 
+paquete="github:JosueGalRe/reparto#$rama"
 mkdir -p "$config/agents"
+ya_estaba=false
+grep -qF "$paquete" "$opencode_json" 2>/dev/null && ya_estaba=true
 
 # `opencode plugin add` es para plugins de la TUI; los del servidor van en `plugins`. El Bun de opencode edita el JSON.
-BUN_BE_BUN=1 RUTA="$opencode_json" PAQUETE="github:JosueGalRe/reparto#$rama" opencode -e '
+BUN_BE_BUN=1 RUTA="$opencode_json" PAQUETE="$paquete" opencode -e '
 const ruta = process.env.RUTA
 const archivo = Bun.file(ruta)
 const existe = await archivo.exists()
@@ -48,4 +51,10 @@ else
   echo "reparto: revisa los modelos de $config/reparto.jsonc contra \`opencode models\`."
 fi
 
-echo "Reinicia OpenCode para cargar el plugin."
+# V2 fija el commit instalado: una rama que avanzó se trae con plugin.update (lo recarga en caliente).
+if [ "$ya_estaba" = true ]; then
+  opencode api plugin.update --data "{\"targets\":[\"$paquete\"]}" >/dev/null
+  echo "reparto: plugin actualizado a lo último de $rama."
+else
+  echo "Reinicia OpenCode para cargar el plugin."
+fi
