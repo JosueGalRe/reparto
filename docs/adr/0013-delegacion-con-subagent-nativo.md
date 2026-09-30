@@ -2,6 +2,8 @@
 
 Reemplaza al ADR 0009.
 
+**Reemplazado por el [ADR 0014](./0014-suplencias-y-agentes-reales.md).** Los encargos se fueron con el director; `delegar` quedó reducido a los revisores de `ensayar`.
+
 reparto delega con el `subagent` nativo de V2 (`background: true`, continuación con `sessionID`) y agrega lo suyo con hooks sobre las sesiones hijas. La tool propia `delegar` queda solo como maquinaria interna de `ensayar`, que necesita una espera sincrónica. El director, el regidor y `build` usan `subagent`.
 
 ## Por qué el ADR 0009 estaba mal

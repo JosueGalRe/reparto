@@ -1,5 +1,7 @@
 # El director no edita: los permisos lo obligan a delegar
 
+**Reemplazado por el [ADR 0014](./0014-suplencias-y-agentes-reales.md).** El director se fue; su lección (la guía en el prompt no alcanza) sigue en el gate del ensayo.
+
 El director no tiene `edit`, `write` ni `patch`, y bash queda limitado a comandos de lectura (`rg`, `git status`, `git diff`…) con reglas de permiso de V2. Lee, busca, planea, delega y verifica, y todo cambio pasa por un papel. Con la guía de categorías solo en el prompt, Opus lanzó 0.1 tareas por sesión: si se deja a criterio del modelo, no reparte el trabajo. Para trabajar directo está el agente `build` nativo.
 
 Solo el director tiene la lista permitida de comandos. Los subagentes de solo lectura (`utilero`, `tiresias`, `archivista`) tienen `edit`, `write`, `patch` y delegación negados, pero shell abierto: no tienen el incentivo del director para evitar delegar, y la lista les costaba llamadas desperdiciadas y diagnósticos bloqueados (`sqlite3`, `jq`, `ls`).

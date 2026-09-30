@@ -1,5 +1,7 @@
 # Plan por fases: reparto
 
+**Histórico.** El [ADR 0014](./adr/0014-suplencias-y-agentes-reales.md) quitó el director, el regidor, los papeles y el estreno: de este plan siguen vigentes las suplencias, `pendientes` y el ensayo general.
+
 Vocabulario en [CONTEXT.md](../CONTEXT.md) y decisiones en [docs/adr/](./adr/). Este plan ordena el trabajo y define cómo se verifica cada paso; no vuelve a decidir lo que ya está en los ADRs.
 
 Hay cinco fases: **0** confirma supuestos sobre V2 que hoy no están verificados, **1** es el MVP, que reemplaza a OMO en el uso diario, **2** agrega los planes, **3** pasa los encargos al `subagent` nativo (ADR 0013) y **4** revisa el código sin cambiar comportamiento: borra lo que dejó la fase 3, quita las type assertions y parte los módulos grandes. Una fase no empieza sin que la anterior haya pasado sus escenarios. Si un resultado de la fase 0 contradice un ADR, se actualiza ese ADR antes de seguir.

@@ -1,5 +1,7 @@
 # Ensayo general: revisores en proveedores distintos, cierre por versión aprobada
 
+**Enmendado por el [ADR 0014](./0014-suplencias-y-agentes-reales.md).** `ensayar` recibe el texto del plan, guarda las rondas por sesión y es obligatorio antes de `submit_plan`; no hay estreno.
+
 Un plan lo revisan en paralelo el crítico y tiresias. Cada revisor corre con el primer actor de su reparto cuyo proveedor no esté ocupado por el otro revisor ni por el dramaturgo, y que no esté de baja: un modelo que revisa un plan de su propia familia comparte sus puntos ciegos. Si las bajas no dejan proveedores distintos, el ensayo corre igual y el plan queda marcado como "con proveedores repetidos".
 
 El plan se cierra cuando todos los revisores aprueban la misma versión. Una objeción bloquea solo si nombra una sección y un defecto concreto; todo lo demás es una nota. Entre rondas, solo el dramaturgo corrige, con cambios mínimos. Después de 5 rondas sin cierre, decides tú con las objeciones abiertas. Un plan cerrado se estrena solo con tu visto bueno.
