@@ -165,7 +165,7 @@ export async function registrarHooks(ctx: Plugin.Context, config: Config) {
     }
   })
 
-  // `ensayar` solo le sirve al Dramaturgo: el resto no la ve.
+  // `ensayar` solo le sirve al Compositor: el resto no la ve.
   await ctx.session.hook('context', (input) => {
     if (input.agent !== 'plan') {
       delete input.tools.ensayar

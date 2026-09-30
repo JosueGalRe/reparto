@@ -60,7 +60,7 @@ export default Plugin.define({
           agent.name = Agent.Name.make('Solista')
         })
         editor.update('plan', (agent) => {
-          agent.name = Agent.Name.make('Dramaturgo')
+          agent.name = Agent.Name.make('Compositor')
         })
       })
       await registrarHooks(ctx, config)

@@ -206,7 +206,7 @@ const proveedor = (actor: Actor) => actor.model.split('/')[0]
 
 export function elegirRevisores(
   validacion: Validacion,
-  dramaturgo: string | undefined,
+  compositor: string | undefined,
   fuera: (actor: Actor) => boolean,
 ): { critico: Actor; tiresias: Actor; repetidos: boolean } | undefined {
   const criticos = (validacion.actores.get('critico') ?? []).filter((actor) => !fuera(actor))
@@ -214,7 +214,7 @@ export function elegirRevisores(
   const pares = criticos.flatMap((critico) => tiresiasDisponibles.map((tiresias) => ({ critico, tiresias })))
   const distinto = pares.find(
     ({ critico, tiresias }) =>
-      proveedor(critico) !== dramaturgo && proveedor(tiresias) !== dramaturgo && proveedor(critico) !== proveedor(tiresias),
+      proveedor(critico) !== compositor && proveedor(tiresias) !== compositor && proveedor(critico) !== proveedor(tiresias),
   )
   const elegido = distinto ?? pares.find(({ critico, tiresias }) => proveedor(critico) !== proveedor(tiresias)) ?? pares[0]
 
@@ -240,7 +240,7 @@ export function actualizarActa(
         continue
       }
 
-      // Ponytail: no automatic duplicate merging; the dramaturgo can reconcile duplicates after reviewing the acta.
+      // Ponytail: no automatic duplicate merging; the compositor can reconcile duplicates after reviewing the acta.
       alta.run({
         plan,
         id: id++,
@@ -372,7 +372,7 @@ async function mensajeFinal(ctx: ContextoRevisores, hija: string): Promise<strin
 }
 
 /**
- * Cada revisor es una sesión propia con el actor elegido, ligada al Dramaturgo por `metadata.padre` y sin
+ * Cada revisor es una sesión propia con el actor elegido, ligada al Compositor por `metadata.padre` y sin
  * `parentID`: así el hook de hijas no le cambia el actor. Si el titular cae a mitad, el `retry` sigue la lista.
  * Sin `parentID`, un pedido de permiso no le aparece a nadie y la ronda se cuelga: por eso `external_directory`,
  * el único `ask` de los revisores, va negado en la sesión. Revisan un texto que viene en el prompt.
@@ -435,7 +435,7 @@ export function ensayo(
     const padre = await ctx.session.get({ sessionID: tool.sessionID })
 
     if (padre.agent !== 'plan') {
-      throw new Error('ensayar: solo el Dramaturgo (plan) puede ensayar')
+      throw new Error('ensayar: solo el Compositor (plan) puede ensayar')
     }
 
     const contenido = input.plan

@@ -99,12 +99,12 @@ const sinRevisores = async () => {
   throw new Error('no debe lanzar revisores')
 }
 
-test('solo el Dramaturgo (plan) ensaya, y un plan vacío no abre ronda', async () => {
+test('solo el Compositor (plan) ensaya, y un plan vacío no abre ronda', async () => {
   const tool = { sessionID: 'ses_x', signal: new AbortController().signal }
 
   await expect(
     ensayo({ session: { get: async () => ({ agent: 'build' }) } }, sinRevisores)({ plan: '# P' }, tool),
-  ).rejects.toThrow(/solo el Dramaturgo/)
+  ).rejects.toThrow(/solo el Compositor/)
   await expect(
     ensayo({ session: { get: async () => ({ agent: 'plan' }) } }, sinRevisores)({ plan: '  ' }, tool),
   ).rejects.toThrow(/vacío/)
@@ -182,7 +182,7 @@ test('a malformed reviewer leaves the round pending and relaunches fresh reviewe
 })
 
 test('selects distinct available providers, or marks repeated providers after bajas', () => {
-  // Given: the dramaturgo uses openai, and tiresias has one alternate provider.
+  // Given: the compositor uses openai, and tiresias has one alternate provider.
   const validacion: Validacion = {
     actores: new Map([
       ['critico', [{ model: 'openai/cheap' }, { model: 'kimi-code-plan-global/cheap' }]],
@@ -193,13 +193,13 @@ test('selects distinct available providers, or marks repeated providers after ba
     desconocidos: [],
   }
 
-  // When: all actors are available; Then: neither reviewer shares the dramaturgo's provider.
+  // When: all actors are available; Then: neither reviewer shares the compositor's provider.
   expect(elegirRevisores(validacion, 'openai', () => false)).toEqual({
     critico: { model: 'kimi-code-plan-global/cheap' },
     tiresias: { model: 'opencode-go/cheap' },
     repetidos: false,
   })
-  // Even if one reviewer must share the dramaturgo's provider, keep the reviewers distinct.
+  // Even if one reviewer must share the compositor's provider, keep the reviewers distinct.
   expect(elegirRevisores(validacion, 'openai', (actor) => actor.model.startsWith('kimi-code-plan-global/'))).toEqual({
     critico: { model: 'openai/cheap' },
     tiresias: { model: 'opencode-go/cheap' },

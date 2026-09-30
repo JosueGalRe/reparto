@@ -9,7 +9,7 @@ import { proceso } from './process.ts'
 const defaultDbPath = join(dataDir, 'reparto.db')
 
 // Acá va solo lo que V2 no guarda (ADR 0010). En `versiones`, `ensayos` y `acta`, `plan` es el id de la sesión
-// Del Dramaturgo (ADR 0014). Las tablas de encargos, estrenos y continuaciones quedan huérfanas en bases viejas.
+// Del Compositor (ADR 0014). Las tablas de encargos, estrenos y continuaciones quedan huérfanas en bases viejas.
 const schema = `
 CREATE TABLE IF NOT EXISTS bajas (
   tipo TEXT NOT NULL CHECK (tipo IN ('proveedor', 'actor')),
