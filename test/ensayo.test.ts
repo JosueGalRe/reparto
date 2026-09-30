@@ -1,18 +1,38 @@
 import { createHash } from 'node:crypto'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { afterAll, expect, test } from 'bun:test'
 
 import { openDb } from '../src/db.ts'
-import { actualizarActa, admitir, cerrado, elegirRevisores, ensayo, leerVeredicto, parsearVeredicto } from '../src/ensayo.ts'
+import {
+  actualizarActa,
+  admitir,
+  cerrado,
+  elegirRevisores,
+  ensayo,
+  ensayoTerminado,
+  leerVeredicto,
+  parsearVeredicto,
+  revisores,
+} from '../src/ensayo.ts'
+import { envioSinEnsayo } from '../src/hooks.ts'
 import { proceso } from '../src/process.ts'
 
 import type { Validacion } from '../src/actores.ts'
-import type { Veredicto } from '../src/ensayo.ts'
+import type { ContextoRevisores, Veredicto } from '../src/ensayo.ts'
 
 const dir = mkdtempSync(join(tmpdir(), 'reparto-ensayo-'))
+const validacionRevisores: Validacion = {
+  actores: new Map([
+    ['critico', [{ model: 'kimi-code-plan-global/k3' }]],
+    ['tiresias', [{ model: 'claude-code/haiku' }]],
+  ]),
+  exclusiones: [],
+  desactivados: [],
+  desconocidos: [],
+}
 
 afterAll(() => rmSync(dir, { recursive: true, force: true }))
 
@@ -38,13 +58,9 @@ test('OBJECIONES sin objeciones nuevas es válido si sigue pendiente el acta', (
 })
 
 test('ensayo rechaza la aprobación guardada corrupta antes de cerrar o relanzar revisores', async () => {
-  // Given: dos aprobaciones aparentes del hash actual, una de ellas sin notas ni cierres.
-  const location = join(dir, 'guardado-corrupto')
-  const plan = '.reparto/planes/demo.md'
+  // Given: dos aprobaciones aparentes del texto actual, una de ellas sin notas ni cierres.
   const contenido = '### T1: comprobar\n'
 
-  mkdirSync(join(location, '.reparto/planes'), { recursive: true })
-  writeFileSync(join(location, plan), contenido)
   using database = openDb(':memory:')
   const previo = proceso.db
 
@@ -55,7 +71,7 @@ test('ensayo rechaza la aprobación guardada corrupta antes de cerrar o relanzar
       database
         .query('INSERT INTO ensayos VALUES (?, 1, ?, ?, ?, ?)')
         .run(
-          join(location, plan),
+          'ses_padre',
           createHash('sha256').update(contenido).digest('hex'),
           revisor,
           'p/m',
@@ -65,22 +81,33 @@ test('ensayo rechaza la aprobación guardada corrupta antes de cerrar o relanzar
         )
     }
 
-    const ejecutar = ensayo(
-      { session: { get: async () => ({ agent: 'dramaturgo', location: { directory: location } }) } },
-      {
-        delegar: async () => {
-          throw new Error('no debe relanzar un ensayo corrupto')
-        },
-      },
-    )
+    const ejecutar = ensayo({ session: { get: async () => ({ agent: 'plan' }) } }, async () => {
+      throw new Error('no debe relanzar un ensayo corrupto')
+    })
 
     // When: se reensaya; Then: el mismo lector impide anunciar el cierre de una revisión corrupta.
-    await expect(ejecutar({ plan }, { sessionID: 'ses_padre', signal: new AbortController().signal })).rejects.toThrow(
-      /veredicto guardado: notas/,
-    )
+    await expect(
+      ejecutar({ plan: contenido }, { sessionID: 'ses_padre', signal: new AbortController().signal }),
+    ).rejects.toThrow(/veredicto guardado: notas/)
+    expect(() => ensayoTerminado(database, 'ses_padre')).toThrow(/veredicto guardado: notas/)
   } finally {
     proceso.db = previo
   }
+})
+
+const sinRevisores = async () => {
+  throw new Error('no debe lanzar revisores')
+}
+
+test('solo el Dramaturgo (plan) ensaya, y un plan vacío no abre ronda', async () => {
+  const tool = { sessionID: 'ses_x', signal: new AbortController().signal }
+
+  await expect(
+    ensayo({ session: { get: async () => ({ agent: 'build' }) } }, sinRevisores)({ plan: '# P' }, tool),
+  ).rejects.toThrow(/solo el Dramaturgo/)
+  await expect(
+    ensayo({ session: { get: async () => ({ agent: 'plan' }) } }, sinRevisores)({ plan: '  ' }, tool),
+  ).rejects.toThrow(/vacío/)
 })
 
 test('parses approved, section-level objections and closure lines', () => {
@@ -117,51 +144,36 @@ test('OBJECIONES with only an open acta entry parses in closure rounds', () => {
   expect(parsearVeredicto(texto)).toEqual({ veredicto: 'OBJECIONES', objeciones: [], notas: [], cierres: { 1: 'abierto' } })
 })
 
-test('a malformed reviewer leaves the round pending and relaunches fresh encargos', async () => {
+test('a malformed reviewer leaves the round pending and relaunches fresh reviewers', async () => {
   // Given: one malformed review in a first round and valid reviews on retry.
-  const location = join(dir, 'retry')
-
-  mkdirSync(join(location, '.reparto/planes'), { recursive: true })
-  writeFileSync(join(location, '.reparto/planes/demo.md'), '### T1: check\n')
   const database = openDb(join(dir, 'retry.db'))
   const previous = { db: proceso.db, validacion: proceso.validacion }
 
   proceso.db = database
-  proceso.validacion = {
-    actores: new Map([
-      ['critico', [{ model: 'kimi-code-plan-global/k3' }]],
-      ['tiresias', [{ model: 'claude-code/haiku' }]],
-    ]),
-    exclusiones: [],
-    desactivados: [],
-    desconocidos: [],
-  }
+  proceso.validacion = validacionRevisores
   let launched = 0
-  const ctx = { session: { get: async () => ({ agent: 'dramaturgo', location: { directory: location } }) } }
-  const dispatch = {
-    delegar: async () => {
-      const hija = `ses_retry_${++launched}`
+  const run = ensayo({ session: { get: async () => ({ agent: 'plan' }) } }, async () => {
+    launched++
 
-      database
-        .query(`INSERT INTO encargos (hija, padre, a, actor, background, estado, mensaje_final, boot_id, pid, starttime, creado)
-      VALUES (?, 'parent', 'critico', 'p/m', 0, 'terminado', ?, 'b', 1, '1', 0)`)
-        .run(hija, launched === 1 ? 'VEREDICTO: OBJECIONES\nOBJECION: malformed' : 'VEREDICTO: APROBADO')
-
-      return hija
-    },
-  }
-  const run = ensayo(ctx, dispatch)
+    return {
+      hija: `ses_retry_${launched}`,
+      actor: 'p/m',
+      mensaje: launched === 1 ? 'VEREDICTO: OBJECIONES\nOBJECION: malformed' : 'VEREDICTO: APROBADO',
+    }
+  })
   const tool = { sessionID: 'parent', signal: new AbortController().signal }
 
   try {
-    // When: the malformed review fails; Then: the round stays pending, not approved.
-    await expect(run({ plan: '.reparto/planes/demo.md' }, tool)).rejects.toThrow(/ronda 1 incompleta/)
+    // When: the malformed review fails; Then: the round stays pending, not approved, and submit_plan stays gated.
+    await expect(run({ plan: '### T1: check\n' }, tool)).rejects.toThrow(/ronda 1 incompleta/)
     expect(database.query('SELECT DISTINCT veredicto FROM ensayos').all()).toEqual([{ veredicto: 'pendiente' }])
-    // When: retried; Then: both reviewers get new encargos and can close the round.
-    const acta = await run({ plan: '.reparto/planes/demo.md' }, tool)
+    expect(ensayoTerminado(database, 'parent')).toBe(false)
+    // When: retried; Then: both reviewers are relaunched and can close the round.
+    const acta = await run({ plan: '### T1: check\n' }, tool)
 
     expect(JSON.parse(acta.content).cerrado).toBe(true)
     expect(launched).toBe(4)
+    expect(ensayoTerminado(database, 'parent')).toBe(true)
   } finally {
     proceso.db = previous.db
     proceso.validacion = previous.validacion
@@ -246,4 +258,153 @@ test('approval closes only when both reviewers approved the same hash and all ac
   expect(cerrado([veredicto, veredicto], [entry], ['one', 'two'])).toBe(false)
   expect(cerrado([veredicto, veredicto], [{ ...entry, estado: 'abierto' }], ['one', 'one'])).toBe(false)
   expect(cerrado([veredicto, veredicto], [entry], ['one', 'one'])).toBe(true)
+})
+
+/** Sesiones dobles para `revisores`: cada `create` da una hija que termina con `veredicto`. */
+function sesionesRevisor(veredicto: string) {
+  const creaciones: Parameters<ContextoRevisores['session']['create']>[0][] = []
+  const prompts: Parameters<ContextoRevisores['session']['prompt']>[0][] = []
+  const interrupciones: string[] = []
+  const salidas = new Map<string, 'succeeded' | 'interrupted'>()
+  const ctx: ContextoRevisores = {
+    session: {
+      get: async ({ sessionID }) => ({
+        location: { directory: '/tmp/repo' },
+        outcome: salidas.get(sessionID),
+        model: creaciones.at(-1)?.model ?? undefined,
+      }),
+      create: async (entrada) => {
+        const id = `ses_revisor_${creaciones.push(entrada)}`
+
+        salidas.set(id, 'succeeded')
+
+        return { id }
+      },
+      prompt: async (entrada) => {
+        prompts.push(entrada)
+      },
+      context: async () => [{ type: 'assistant', content: [{ type: 'text', text: veredicto }] }],
+      wait: async () => {},
+      interrupt: async ({ sessionID }) => {
+        interrupciones.push(sessionID)
+        salidas.set(sessionID, 'interrupted')
+      },
+    },
+  }
+
+  return { ctx, creaciones, prompts, interrupciones, salidas }
+}
+
+test('revisores crea la hija con el actor elegido y devuelve el mensaje final completo', async () => {
+  // Given: an actor other than the titular and a verdict longer than any old bitácora cap.
+  const veredicto = `VEREDICTO: APROBADO\nNOTA: ${'x'.repeat(40_000)}`
+  const { ctx, creaciones, prompts } = sesionesRevisor(veredicto)
+  const tool = { sessionID: 'ses_plan', signal: new AbortController().signal }
+
+  // When: a reviewer runs.
+  const resultado = await revisores(ctx)('critico', 'Revisa el plan', tool, { model: 'kimi/revisor', variant: 'thinking' })
+
+  // Then: the child is tied to the plan session by metadata, not parentID, and runs with the chosen actor.
+  expect(resultado).toEqual({ hija: 'ses_revisor_1', actor: 'kimi/revisor#thinking', mensaje: veredicto })
+  expect(creaciones).toMatchObject([
+    {
+      agent: 'critico',
+      model: { providerID: 'kimi', id: 'revisor', variant: 'thinking' },
+      metadata: { padre: 'ses_plan' },
+      location: { directory: '/tmp/repo' },
+      permissions: [{ action: 'external_directory', resource: '*', effect: 'deny' }],
+    },
+  ])
+  expect(creaciones[0]).not.toHaveProperty('parentID')
+  expect(prompts).toEqual([{ sessionID: 'ses_revisor_1', text: 'Revisa el plan' }])
+})
+
+test('revisores interrumpe la hija si se cancela la tool y falla sin veredicto', async () => {
+  // Given: wait blocks until the tool call is aborted.
+  const { ctx, interrupciones } = sesionesRevisor('VEREDICTO: APROBADO')
+  const control = new AbortController()
+  const esperando = Promise.withResolvers<void>()
+  const terminado = Promise.withResolvers<void>()
+
+  ctx.session.wait = async () => {
+    esperando.resolve()
+    await terminado.promise
+  }
+
+  const pendiente = revisores(ctx)('tiresias', 'Revisa', { sessionID: 'ses_plan', signal: control.signal }, { model: 'a/b' })
+
+  await esperando.promise
+  // When: the tool is cancelled.
+  control.abort()
+  terminado.resolve()
+
+  // Then: the child is interrupted once and the round cannot read a verdict from it.
+  await expect(pendiente).rejects.toThrow(/terminó interrupted/)
+  control.signal.dispatchEvent(new Event('abort'))
+  expect(interrupciones).toEqual(['ses_revisor_1'])
+})
+
+test('un ensayo completo con revisores reales cierra y no relanza una ronda ya cerrada', async () => {
+  // Given: both reviewers approve.
+  const { ctx, creaciones } = sesionesRevisor('VEREDICTO: APROBADO')
+  const database = openDb(join(dir, 'completo.db'))
+  const previous = { db: proceso.db, validacion: proceso.validacion }
+
+  proceso.db = database
+  proceso.validacion = validacionRevisores
+  const ensayar = ensayo({ session: { get: async () => ({ agent: 'plan' }) } }, revisores(ctx))
+  const tool = { sessionID: 'ses_plan', signal: new AbortController().signal }
+
+  try {
+    // When: the same text is rehearsed twice.
+    const primera = await ensayar({ plan: '# Plan\n' }, tool)
+    const repetida = await ensayar({ plan: '# Plan\n' }, tool)
+
+    // Then: the first round closes and the repeat reuses it without new children.
+    expect(JSON.parse(primera.content)).toMatchObject({ cerrado: true, ronda: 1 })
+    expect(JSON.parse(repetida.content)).toMatchObject({ cerrado: true, ronda: 1 })
+    expect(creaciones.map((creacion) => creacion?.agent)).toEqual(['critico', 'tiresias'])
+  } finally {
+    proceso.db = previous.db
+    proceso.validacion = previous.validacion
+    database.close()
+  }
+})
+
+test('submit_plan: rechazado sin ensayo terminado; pasa con la ronda cerrada, en la ronda 5 o sin revisores', () => {
+  const database = openDb(join(dir, 'gate.db'))
+  const previous = { db: proceso.db, validacion: proceso.validacion }
+  const guardarRonda = (plan: string, ronda: number, veredicto: string) => {
+    for (const revisor of ['critico', 'tiresias']) {
+      database.query('INSERT INTO ensayos VALUES (?, ?, ?, ?, ?, ?)').run(plan, ronda, 'h', revisor, 'p/m', veredicto)
+    }
+  }
+  const aprobado = JSON.stringify(parsearVeredicto('VEREDICTO: APROBADO'))
+  const objetado = JSON.stringify(parsearVeredicto('VEREDICTO: OBJECIONES\nOBJECION: T1 | a | b | c'))
+
+  proceso.db = database
+  proceso.validacion = validacionRevisores
+
+  try {
+    // Given: no ensayo, a pending round, and an objected round; Then: all rejected with a pointer to ensayar.
+    expect(envioSinEnsayo('submit_plan', 'ses_nada')).toContain('ensayar')
+    guardarRonda('ses_pendiente', 1, 'pendiente')
+    expect(envioSinEnsayo('submit_plan', 'ses_pendiente')).toBeDefined()
+    guardarRonda('ses_objetado', 1, objetado)
+    expect(envioSinEnsayo('submit_plan', 'ses_objetado')).toBeDefined()
+    // Given: a closed round, or round 5 without closure (Bryan decides); Then: it passes.
+    guardarRonda('ses_cerrado', 1, aprobado)
+    expect(envioSinEnsayo('submit_plan', 'ses_cerrado')).toBeUndefined()
+    guardarRonda('ses_quinta', 5, objetado)
+    expect(envioSinEnsayo('submit_plan', 'ses_quinta')).toBeUndefined()
+    // Other tools are untouched.
+    expect(envioSinEnsayo('edit', 'ses_nada')).toBeUndefined()
+    // Given: no reviewer can run; Then: the plan goes straight to Bryan.
+    proceso.validacion = { ...validacionRevisores, actores: new Map() }
+    expect(envioSinEnsayo('submit_plan', 'ses_nada')).toBeUndefined()
+  } finally {
+    proceso.db = previous.db
+    proceso.validacion = previous.validacion
+    database.close()
+  }
 })

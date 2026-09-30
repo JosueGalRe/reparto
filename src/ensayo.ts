@@ -1,16 +1,15 @@
 import { createHash } from 'node:crypto'
-import { realpath } from 'node:fs/promises'
-import { isAbsolute, relative, resolve } from 'node:path'
 
-import { etiqueta } from './actores.ts'
+import { etiqueta, modelRef } from './actores.ts'
 import { bajasVigentes, deBaja } from './bajas.ts'
 import { db, write } from './db.ts'
+import { log } from './log.ts'
 import { proceso } from './process.ts'
 import { esRegistro } from './validation-utils.ts'
 
 import type { Validacion } from './actores.ts'
 import type { Actor } from './config.ts'
-import type { Encargo, EntradaRevisor } from './encargos-types.ts'
+import type { Plugin } from '@opencode/plugin'
 import type { Database } from 'bun:sqlite'
 
 interface Objecion {
@@ -42,6 +41,42 @@ interface Ensayo {
   readonly revisor: string
   readonly actor: string
   readonly veredicto: string
+}
+type Revisor = 'critico' | 'tiresias'
+interface Llamada {
+  readonly sessionID: string
+  readonly signal: AbortSignal
+}
+export type Revisar = (
+  revisor: Revisor,
+  prompt: string,
+  tool: Llamada,
+  actor: Actor,
+) => Promise<{ hija: string; actor: string; mensaje: string }>
+
+type Sesion = Awaited<ReturnType<Plugin.Context['session']['get']>>
+type Mensaje = Awaited<ReturnType<Plugin.Context['session']['context']>>[number]
+
+export interface ContextoRevisores {
+  readonly session: {
+    get: (entrada: { sessionID: string }) => Promise<Pick<Sesion, 'model' | 'outcome' | 'location'>>
+    create: (entrada: Parameters<Plugin.Context['session']['create']>[0]) => Promise<{ id: string }>
+    context: (entrada: { sessionID: string }) => Promise<
+      readonly (
+        | {
+            readonly type: 'assistant'
+            readonly content: readonly (
+              | { readonly type: 'text'; readonly text: string }
+              | { readonly type: 'reasoning' | 'tool' }
+            )[]
+          }
+        | { readonly type: Exclude<Mensaje['type'], 'assistant'> }
+      )[]
+    >
+    prompt: (entrada: Parameters<Plugin.Context['session']['prompt']>[0]) => Promise<unknown>
+    wait: (entrada: Parameters<Plugin.Context['session']['wait']>[0]) => Promise<void>
+    interrupt: (entrada: Parameters<Plugin.Context['session']['interrupt']>[0]) => Promise<unknown>
+  }
 }
 
 export function leerVeredicto(texto: string): Veredicto {
@@ -288,72 +323,144 @@ function diferencia(anterior: string, actual: string): string {
   )
 }
 
+const leerActa = (database: Database, plan: string) =>
+  database.query<EntradaActa, { plan: string }>('SELECT * FROM acta WHERE plan = $plan ORDER BY id').all({ plan })
+
+/** ¿Cerró esta ronda? Ambas revisiones terminadas y aprobadas sobre el mismo hash, con el acta cerrada. */
+function cierreGuardado(database: Database, plan: string, ronda: number): boolean {
+  const filas = database
+    .query<Ensayo, { plan: string; ronda: number }>('SELECT * FROM ensayos WHERE plan = $plan AND ronda = $ronda')
+    .all({ plan, ronda })
+
+  return (
+    filas.length === 2 &&
+    filas.every((fila) => fila.veredicto !== 'pendiente') &&
+    cerrado(
+      filas.map((fila) => leerVeredicto(fila.veredicto)),
+      leerActa(database, plan),
+      filas.map((fila) => fila.hash),
+    )
+  )
+}
+
+/** Lo que exige el gate de `submit_plan`: la última ronda de la sesión cerró, o llegó a la 5 y decide Bryan. */
+export function ensayoTerminado(database: Database, plan: string): boolean {
+  const ultima = database
+    .query<Ensayo, { plan: string }>('SELECT * FROM ensayos WHERE plan = $plan ORDER BY ronda DESC LIMIT 1')
+    .get({ plan })
+
+  return !!ultima && ultima.veredicto !== 'pendiente' && (ultima.ronda >= 5 || cierreGuardado(database, plan, ultima.ronda))
+}
+
+async function mensajeFinal(ctx: ContextoRevisores, hija: string): Promise<string | undefined> {
+  const mensajes = await ctx.session.context({ sessionID: hija })
+
+  for (const mensaje of mensajes.toReversed()) {
+    if (mensaje.type !== 'assistant') {
+      continue
+    }
+
+    const texto = mensaje.content
+      .flatMap((parte) => (parte.type === 'text' ? [parte.text] : []))
+      .join('\n')
+      .trim()
+
+    if (texto) {
+      return texto
+    }
+  }
+}
+
+/**
+ * Cada revisor es una sesión propia con el actor elegido, ligada al Dramaturgo por `metadata.padre` y sin
+ * `parentID`: así el hook de hijas no le cambia el actor. Si el titular cae a mitad, el `retry` sigue la lista.
+ * Sin `parentID`, un pedido de permiso no le aparece a nadie y la ronda se cuelga: por eso `external_directory`,
+ * el único `ask` de los revisores, va negado en la sesión. Revisan un texto que viene en el prompt.
+ */
+export function revisores(ctx: ContextoRevisores): Revisar {
+  return async (revisor, prompt, tool, actorElegido) => {
+    const padre = await ctx.session.get({ sessionID: tool.sessionID })
+    const { id: hija } = await ctx.session.create({
+      title: `${revisor} · ensayo`,
+      agent: revisor,
+      model: modelRef(actorElegido),
+      location: { directory: padre.location.directory },
+      metadata: { padre: tool.sessionID },
+      permissions: [{ action: 'external_directory', resource: '*', effect: 'deny' }],
+    })
+    const interrumpir = () =>
+      void ctx.session
+        .interrupt({ sessionID: hija })
+        .catch((error) => log.error('interrupt falló', { hija, error: String(error) }))
+
+    log.info('revisor creado', { hija, padre: tool.sessionID, revisor, actor: etiqueta(actorElegido) })
+    tool.signal.addEventListener('abort', interrumpir, { once: true })
+
+    try {
+      await ctx.session.prompt({ sessionID: hija, text: prompt })
+      await ctx.session.wait({ sessionID: hija })
+    } finally {
+      tool.signal.removeEventListener('abort', interrumpir)
+    }
+
+    const sesion = await ctx.session.get({ sessionID: hija })
+
+    if (sesion.outcome !== 'succeeded') {
+      throw new Error(`${revisor}: ${hija} terminó ${sesion.outcome ?? 'sin outcome'}`)
+    }
+
+    const mensaje = await mensajeFinal(ctx, hija)
+
+    if (!mensaje) {
+      throw new Error(`${revisor}: ${hija} terminó sin salida`)
+    }
+
+    const actor = sesion.model
+      ? etiqueta({ model: `${sesion.model.providerID}/${sesion.model.id}`, variant: sesion.model.variant })
+      : etiqueta(actorElegido)
+
+    return { hija, actor, mensaje }
+  }
+}
+
 export function ensayo(
   ctx: {
     session: {
-      get: (entrada: {
-        sessionID: string
-      }) => Promise<{ agent?: string; model?: { providerID: string }; location: { directory: string } }>
+      get: (entrada: { sessionID: string }) => Promise<{ agent?: string; model?: { providerID: string } }>
     }
   },
-  encargos: {
-    delegar: (entrada: EntradaRevisor, tool: { sessionID: string; signal: AbortSignal }, actor: Actor) => Promise<string>
-  },
+  revisar: Revisar,
 ) {
-  return async (input: { plan: string }, tool: { sessionID: string; signal: AbortSignal }) => {
+  return async (input: { plan: string }, tool: Llamada) => {
     const padre = await ctx.session.get({ sessionID: tool.sessionID })
 
-    if (padre.agent !== 'dramaturgo') {
-      throw new Error('ensayar: solo el dramaturgo puede ensayar')
+    if (padre.agent !== 'plan') {
+      throw new Error('ensayar: solo el Dramaturgo (plan) puede ensayar')
     }
 
-    const raiz = resolve(padre.location.directory, '.reparto/planes')
-    const ruta = resolve(padre.location.directory, input.plan)
-    const relativa = relative(raiz, ruta)
+    const contenido = input.plan
 
-    if (isAbsolute(input.plan) || relativa.startsWith('..') || isAbsolute(relativa) || !relativa || !ruta.endsWith('.md')) {
-      throw new Error('ensayar: el plan debe estar bajo .reparto/planes/ y ser .md')
+    if (!contenido.trim()) {
+      throw new Error('ensayar: el plan está vacío')
     }
 
-    const real = await realpath(ruta)
-
-    if (real !== ruta) {
-      throw new Error('ensayar: no se permiten symlinks')
-    }
-
-    const contenido = await Bun.file(ruta).text()
     const hash = createHash('sha256').update(contenido).digest('hex')
-    const plan = real
-    const nombre = relative(padre.location.directory, ruta)
+    // Ponytail: un plan por sesión. Un segundo plan en la misma sesión hereda el acta del primero; si pasa seguido,
+    // La clave pasa a ser sesión + título del plan.
+    const plan = tool.sessionID
     const database = db()
     const anterior = database
       .query<Ensayo, { plan: string }>('SELECT * FROM ensayos WHERE plan = $plan ORDER BY ronda DESC LIMIT 1')
       .get({ plan })
 
     if (anterior?.veredicto !== 'pendiente') {
-      if (anterior) {
-        const filas = database
-          .query<Ensayo, { plan: string; ronda: number }>('SELECT * FROM ensayos WHERE plan = $plan AND ronda = $ronda')
-          .all({ plan, ronda: anterior.ronda })
-        const acta = database.query<EntradaActa, { plan: string }>('SELECT * FROM acta WHERE plan = $plan').all({ plan })
-
-        if (
-          filas.length === 2 &&
-          filas.every((fila) => fila.veredicto !== 'pendiente') &&
-          cerrado(
-            filas.map((fila) => leerVeredicto(fila.veredicto)),
-            acta,
-            filas.map((fila) => fila.hash),
-          ) &&
-          anterior.hash === hash
-        ) {
-          return { content: JSON.stringify({ plan: nombre, ronda: anterior.ronda, cerrado: true, acta }) }
-        }
+      if (anterior && anterior.hash === hash && cierreGuardado(database, plan, anterior.ronda)) {
+        return { content: JSON.stringify({ ronda: anterior.ronda, cerrado: true, acta: leerActa(database, plan) }) }
       }
 
       if (anterior && anterior.ronda >= 5) {
         return {
-          content: JSON.stringify({ plan: nombre, ronda: 5, cerrado: false, decision: 'Bryan debe decidir: máximo 5 rondas' }),
+          content: JSON.stringify({ ronda: 5, cerrado: false, decision: 'Bryan debe decidir: máximo 5 rondas' }),
         }
       }
     }
@@ -397,9 +504,7 @@ export function ensayo(
           'SELECT contenido FROM versiones WHERE plan = $plan AND hash = $hash',
         )
         .get({ plan, hash: prevHash.hash })
-    const acta = database
-      .query<EntradaActa, { plan: string }>('SELECT * FROM acta WHERE plan = $plan ORDER BY id')
-      .all({ plan })
+    const acta = leerActa(database, plan)
 
     if (
       !write(database, 'iniciar ensayo', () => {
@@ -430,22 +535,15 @@ export function ensayo(
     const prompt = `${contexto}\n\nPlan snapshot (review this exact text):\n${version.contenido}\n\nReturn one line per field, no Markdown fences. First line: VEREDICTO: APROBADO or VEREDICTO: OBJECIONES. Every blocking objection: OBJECION: <section> | <concrete defect> | <cause> | <closing condition>. Optional notes: NOTA: <observation>. Use OBJECIONES if an acta entry is open or an admissible objection remains; otherwise use APROBADO.`
     const resultados = await Promise.allSettled(
       (['critico', 'tiresias'] as const).map(async (revisor) => {
-        const hija = await encargos.delegar({ revisor, prompt }, tool, actores[revisor])
-        const fila = database
-          .query<Encargo, { hija: string }>('SELECT * FROM encargos WHERE hija = $hija ORDER BY id DESC LIMIT 1')
-          .get({ hija })
+        const { hija, actor, mensaje } = await revisar(revisor, prompt, tool, actores[revisor])
 
-        if (fila?.estado !== 'terminado' || !fila.mensaje_final) {
-          throw new Error(`${revisor}: encargo no terminó (${fila?.estado})`)
-        }
-
-        return { revisor, actor: fila.actor, veredicto: parsearVeredicto(fila.mensaje_final), hija: fila.hija }
+        return { revisor, actor, veredicto: parsearVeredicto(mensaje), hija }
       }),
     )
 
     if (resultados.some((resultado) => resultado.status === 'rejected')) {
       throw new Error(
-        `ensayar: ronda ${ronda} incompleta; reintenta con encargos nuevos: ${resultados
+        `ensayar: ronda ${ronda} incompleta; reintenta con revisores nuevos: ${resultados
           .filter((resultado) => resultado.status === 'rejected')
           .map((resultado) => String(resultado.reason))
           .join('; ')}`,
@@ -486,7 +584,6 @@ export function ensayo(
 
     return {
       content: JSON.stringify({
-        plan: nombre,
         ronda,
         hash: hashRonda,
         revisores: efectivos,

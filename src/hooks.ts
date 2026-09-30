@@ -1,36 +1,33 @@
 import { type Plugin, Skill } from '@opencode/plugin'
 
-import { agentesPropios, esActor, etiqueta, modelRef, resolver } from './actores.ts'
-import { conShellDeLectura, motivoNegado, papeles, ruteo } from './agentes.ts'
+import { esActor, etiqueta, modelRef, resolver, validacionLista } from './actores.ts'
 import { bajasVigentes, deBaja, suplencias } from './bajas.ts'
 import { db } from './db.ts'
-import { planDeSesion } from './estreno.ts'
+import { elegirRevisores, ensayoTerminado } from './ensayo.ts'
 import { log } from './log.ts'
-import { hijasNativas, proceso } from './process.ts'
+import { proceso } from './process.ts'
 import { esRegistro } from './validation-utils.ts'
 
 import type { Config } from './config.ts'
-import type { continuacion } from './continuacion.ts'
-import type { encargos } from './encargos.ts'
 import type { ContextoHija, EvaluacionSubagent } from './hooks-types.ts'
 import type { SessionPrompt } from '@opencode/plugin/promise/session'
 
 const debug = !!process.env.REPARTO_DEBUG
 
-/** Primarios cuyo actor impone reparto en el hook `prompt`: el servidor no aplica `agent.model` (S10). */
-const primarios = new Set(['director', 'dramaturgo', 'regidor', 'build'])
-const hijos = new Set(['utilero', 'archivista', 'tiresias', 'critico', ...papeles])
+/** ¿Tiene reparto en la config? `hasOwn`: un agente llamado `constructor` no hereda el prototipo. */
+const conReparto = (config: Config, agente: string) => Object.hasOwn(config.agentes ?? {}, agente)
 
-export async function imponerHija(ctx: ContextoHija, sessionID: string) {
+/** Hija nativa de un agente con reparto: corre con su actor, nunca con el modelo heredado del padre. */
+export async function imponerHija(ctx: ContextoHija, config: Config, sessionID: string) {
   const sesion = await ctx.session.get({ sessionID })
+  const agente = sesion.agent ?? ''
 
-  if (!sesion.parentID || !hijos.has(sesion.agent ?? '')) {
+  if (!sesion.parentID || !conReparto(config, agente)) {
     return false
   }
 
-  const desde = Date.now()
-  const agente = sesion.agent ?? ''
-  const actor = proceso.validacion && resolver(proceso.validacion, agente, deBaja(bajasVigentes(db())))
+  const validacion = await validacionLista()
+  const actor = validacion && resolver(validacion, agente, deBaja(bajasVigentes(db())))
 
   if (!actor) {
     throw new Error(`hija ${sessionID} (${agente}) sin actor disponible`)
@@ -41,26 +38,13 @@ export async function imponerHija(ctx: ContextoHija, sessionID: string) {
     log.info('actor impuesto', { sessionID, agente, actor: etiqueta(actor), antes: sesion.model ?? null })
   }
 
-  hijasNativas().set(sessionID, { padre: sesion.parentID, desde, actividad: Date.now(), avisado: false, permisos: new Set() })
-
   return true
 }
 
-export function evaluarSubagent(input: EvaluacionSubagent) {
-  if (input.action !== 'subagent' || input.effect !== 'allow') {
-    return
-  }
-
-  if (input.agent === 'regidor' && !planDeSesion(db(), input.sessionID)) {
-    input.effect = 'deny'
-    input.message = 'regidor sin plan estrenado: usa /estreno <plan>'
-
-    return
-  }
-
+export function evaluarSubagent(input: EvaluacionSubagent, config: Config) {
   const destino = input.resources[0]
 
-  if (!destino || (!hijos.has(destino) && !agentesPropios.has(destino))) {
+  if (input.action !== 'subagent' || input.effect !== 'allow' || !destino || !conReparto(config, destino)) {
     return
   }
 
@@ -72,6 +56,34 @@ export function evaluarSubagent(input: EvaluacionSubagent) {
 
   input.effect = 'deny'
   input.message = `reparto: ${destino} sin actor disponible${proceso.validacion ? '' : ' (validación pendiente)'}. Bajas: ${bajas.map((baja) => `${baja.id} hasta ${new Date(baja.hasta).toISOString()}`).join(', ') || 'ninguna'}`
+}
+
+/**
+ * Plannotator recibe el plan con `submit_plan`: sin un ensayo terminado en la sesión, se rechaza (ADR 0014).
+ * Devuelve el motivo del rechazo, o undefined si la llamada pasa.
+ */
+export function envioSinEnsayo(tool: string, sessionID: string): string | undefined {
+  if (tool !== 'submit_plan') {
+    return
+  }
+
+  try {
+    if (ensayoTerminado(db(), sessionID)) {
+      return
+    }
+  } catch (error) {
+    log.error('gate de submit_plan: ensayo ilegible', { sessionID, error: String(error) })
+  }
+
+  // Sin revisores disponibles no hay ensayo posible: el plan pasa y la revisión queda solo en manos de Bryan.
+  if (!proceso.validacion || !elegirRevisores(proceso.validacion, undefined, deBaja(bajasVigentes(db())))) {
+    log.warn('submit_plan sin ensayo: no hay revisores disponibles', { sessionID })
+
+    return
+  }
+
+  // Ponytail: no compara el texto enviado con el ensayado; basta con que la sesión tenga un ensayo terminado.
+  return 'reparto: run `ensayar` with the full plan until a round closes (or round 5 is reached) before calling `submit_plan`.'
 }
 
 export function adjuntarSkill(prompt: SessionPrompt['prompt'], disponibles: readonly { readonly id: string }[]) {
@@ -92,12 +104,7 @@ export function adjuntarSkill(prompt: SessionPrompt['prompt'], disponibles: read
   prompt.skills.push({ id: Skill.ID.make(skill.id) })
 }
 
-export async function registrarHooks(
-  ctx: Plugin.Context,
-  config: Config,
-  continuar: ReturnType<typeof continuacion>,
-  gestor: Pick<ReturnType<typeof encargos>, 'registrarLlamada'>,
-) {
+export async function registrarHooks(ctx: Plugin.Context, config: Config) {
   await ctx.session.hook('prompt', async (input) => {
     try {
       if (input.prompt.text.trimStart().startsWith('/')) {
@@ -116,23 +123,21 @@ export async function registrarHooks(
   // Como primer turno.
   await ctx.session.hook('prompt', async (input) => {
     try {
-      if (input.metadata?.repartoAviso === true) {
-        return
-      }
-
-      if (await imponerHija(ctx, input.sessionID)) {
+      if (await imponerHija(ctx, config, input.sessionID)) {
         return
       }
 
       const sesion = await ctx.session.get({ sessionID: input.sessionID })
-      const agente = sesion.agent ?? 'director'
+      const agente = sesion.agent ?? 'build'
 
-      if (!primarios.has(agente)) {
+      // Hijas sin reparto heredan el modelo del padre; los revisores del ensayo ya nacen con su actor.
+      if (sesion.parentID || sesion.metadata?.padre || !conReparto(config, agente)) {
         return
       }
 
       const clave = `impuesto/${input.sessionID}/${agente}`
-      const actor = proceso.validacion && resolver(proceso.validacion, agente, deBaja(bajasVigentes(db())))
+      const validacion = await validacionLista()
+      const actor = validacion && resolver(validacion, agente, deBaja(bajasVigentes(db())))
 
       if (!actor) {
         return log.warn('sin actor para imponer', { sessionID: input.sessionID, agente })
@@ -159,46 +164,34 @@ export async function registrarHooks(
       throw error
     }
   })
-  await ctx.session.hook('prompt', (input) => continuar.prompt(input))
 
+  // `ensayar` solo le sirve al Dramaturgo: el resto no la ve.
   await ctx.session.hook('context', (input) => {
-    if (debug) {
+    if (input.agent !== 'plan') {
+      delete input.tools.ensayar
+    }
+  })
+
+  // Solo corre cuando las reglas ya dieron allow (S7): sirve para negar, no para permitir.
+  await ctx.permission.hook('evaluate', (input) => evaluarSubagent(input, config))
+  // `submit_plan` es tool de plugin y no pide permiso, así que `evaluate` no la ve: el gate va antes de ejecutarla.
+  await ctx.tool.hook('execute.before', (llamada) => {
+    const motivo = envioSinEnsayo(llamada.tool, llamada.sessionID)
+
+    if (motivo) {
+      log.info('submit_plan rechazado', { sessionID: llamada.sessionID })
+      throw new Error(motivo)
+    }
+  })
+
+  if (debug) {
+    await ctx.session.hook('context', (input) => {
       log.info('debug: tools de la request', {
         sessionID: input.sessionID,
         agent: input.agent,
         tools: Object.keys(input.tools).toSorted(),
       })
-    }
-
-    if (input.agent === 'director' || input.agent === 'regidor') {
-      input.system.push({ type: 'text', text: ruteo(proceso.validacion) })
-    }
-  })
-
-  // Solo corre cuando las reglas ya dieron allow (S7): sirve para negar, no para permitir.
-  await ctx.permission.hook('evaluate', (input) => {
-    evaluarSubagent(input)
-
-    if (input.action !== 'shell' || input.effect !== 'allow' || !conShellDeLectura.has(String(input.agent))) {
-      return
-    }
-
-    for (const tramo of input.resources) {
-      const motivo = motivoNegado(tramo)
-
-      if (!motivo) {
-        continue
-      }
-
-      input.effect = 'deny'
-      input.message = `reparto: ${motivo} negada en el shell de solo lectura. Para cambiar archivos, delega.`
-      log.info('shell negado', { sessionID: input.sessionID, agent: input.agent, tramo, motivo })
-
-      return
-    }
-  })
-
-  if (debug) {
+    })
     await ctx.session.hook('model.request', (input) => {
       log.info('debug: model.request', {
         sessionID: input.sessionID,
@@ -247,11 +240,4 @@ export async function registrarHooks(
       log.error('hook retry falló', { sessionID: reintento.sessionID, error: String(error) })
     }
   })
-
-  // Session.context pierde las tool calls al compactar (S14): la bitácora se llena acá
-  await ctx.tool.hook('execute.after', (llamada) =>
-    gestor.registrarLlamada(
-      llamada.status === 'completed' ? { ...llamada, result: llamada.result } : { ...llamada, error: llamada.error },
-    ),
-  )
 }

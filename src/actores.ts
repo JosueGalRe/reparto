@@ -4,22 +4,18 @@ import { proceso } from './process.ts'
 import type { Catalog } from './catalog.ts'
 import type { Actor, Config } from './config.ts'
 
-/** Agentes que registra reparto; el resto de `agentes` tiene que existir en V2 (nativos como `build`). */
-export const agentesPropios = new Set(['director', 'utilero', 'archivista', 'tiresias', 'dramaturgo', 'critico', 'regidor'])
-
 export interface Exclusion {
   nombre: string
-  tipo: 'agente' | 'papel'
   actor: string
   motivo: string
 }
 
 export interface Validacion {
-  /** Actores válidos por agente o papel, en orden: titular y después suplentes. */
+  /** Actores válidos por agente, en orden: titular y después suplentes. */
   actores: Map<string, Actor[]>
   exclusiones: Exclusion[]
   desactivados: string[]
-  /** Agentes de la config que no son de reparto y no existen en V2. */
+  /** Agentes de la config que no existen en V2. */
   desconocidos: string[]
 }
 
@@ -44,32 +40,27 @@ function motivoInvalido(actor: Actor, catalog: Catalog): string | undefined {
 export function validar(config: Config, catalog: Catalog, agentesV2?: readonly string[]): Validacion {
   const resultado: Validacion = { actores: new Map(), exclusiones: [], desactivados: [], desconocidos: [] }
 
-  for (const [tipo, repartos] of [
-    ['agente', config.agentes],
-    ['papel', config.papeles],
-  ] as const) {
-    for (const [nombre, reparto] of Object.entries(repartos ?? {})) {
-      if (tipo === 'agente' && agentesV2 && !agentesPropios.has(nombre) && !agentesV2.includes(nombre)) {
-        resultado.desconocidos.push(nombre)
-      }
+  for (const [nombre, reparto] of Object.entries(config.agentes ?? {})) {
+    if (agentesV2 && !agentesV2.includes(nombre)) {
+      resultado.desconocidos.push(nombre)
+    }
 
-      const validos: Actor[] = []
+    const validos: Actor[] = []
 
-      for (const actor of [reparto.titular, ...(reparto.suplentes ?? [])]) {
-        const motivo = motivoInvalido(actor, catalog)
+    for (const actor of [reparto.titular, ...(reparto.suplentes ?? [])]) {
+      const motivo = motivoInvalido(actor, catalog)
 
-        if (motivo) {
-          resultado.exclusiones.push({ nombre, tipo, actor: etiqueta(actor), motivo })
-        } else {
-          validos.push(actor)
-        }
-      }
-
-      if (validos.length) {
-        resultado.actores.set(nombre, validos)
+      if (motivo) {
+        resultado.exclusiones.push({ nombre, actor: etiqueta(actor), motivo })
       } else {
-        resultado.desactivados.push(nombre)
+        validos.push(actor)
       }
+    }
+
+    if (validos.length) {
+      resultado.actores.set(nombre, validos)
+    } else {
+      resultado.desactivados.push(nombre)
     }
   }
 
@@ -118,9 +109,20 @@ export function siguiente(
     .find((actor) => !fuera(actor) && !esActor(actor, actual))
 }
 
+/** La primera validación llega unos cientos de ms después del setup: el primer prompt tras un reinicio la espera. */
+export async function validacionLista(tope = 5_000): Promise<Validacion | undefined> {
+  if (!proceso.validacion) {
+    proceso.validada ??= Promise.withResolvers<void>()
+    await Promise.race([proceso.validada.promise, Bun.sleep(tope)])
+  }
+
+  return proceso.validacion
+}
+
 // Todas las instancias del proceso (una por location) validan la misma config contra el mismo catálogo.
 export function publicar(nueva: Validacion) {
   proceso.validacion = nueva
+  proceso.validada?.resolve()
   const firma = JSON.stringify([nueva.exclusiones, nueva.desactivados, nueva.desconocidos, [...nueva.actores]])
 
   // V2 repite el transform en cada model.updated (~5 min, S9) y en cada location: solo se loguea lo que cambió

@@ -1,20 +1,15 @@
 import type { Validacion } from './actores.ts'
 import type { ErrorCrudo } from './bajas.ts'
-import type { HijaNativa } from './encargos-types.ts'
 import type { Database } from 'bun:sqlite'
 
 /** Estado compartido por todas las instancias del proceso. */
 interface Proceso {
   validacion?: Validacion
+  /** Se resuelve con la primera validación publicada. */
+  validada?: { promise: Promise<void>; resolve: () => void }
   /** Lo último que se logueó de la validación, para no repetirlo en cada location ni en cada model.updated. */
   firma: string
   db?: Database
-  /** Hijas con un encargo abierto en este proceso. */
-  abiertos?: Map<string, { id: number }>
-  /** Hijas nativas activas; el evento de ejecución cierra su vigilancia. */
-  hijasNativas?: Map<string, HijaNativa>
-  /** Encargos que alguna instancia está cerrando, para no pedir su outcome dos veces. */
-  cerrando?: Set<number>
   /** Último error `primary` por sesión (http.response o ws.receive), hasta que lo consume el `retry`. */
   errores?: Map<string, ErrorCrudo>
   /** Fallos 5xx seguidos del actor actual, por sesión. */
@@ -30,5 +25,3 @@ const global: typeof globalThis & { [key]?: Proceso } = globalThis
 
 global[key] ??= { firma: '' }
 export const proceso: Proceso = global[key]
-export const abiertos = () => (proceso.abiertos ??= new Map<string, { id: number }>())
-export const hijasNativas = () => (proceso.hijasNativas ??= new Map<string, HijaNativa>())

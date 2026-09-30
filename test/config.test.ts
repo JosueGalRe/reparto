@@ -20,22 +20,21 @@ async function load(text: string) {
 
 test('acepta JSONC con comentarios y comas finales', async () => {
   const result = await load(`{
-    // director
-    "agentes": { "director": { "titular": { "model": "claude-code/claude-opus-5-5", "variant": "high" }, "suplentes": [{ "model": "openai/gpt-5.5" },] } },
-    "papeles": { "protagonista": { "titular": { "model": "opencode-go/kimi-k3", "variant": "max" } } },
+    // Solista
+    "agentes": { "build": { "titular": { "model": "claude-code/claude-opus-5-5", "variant": "high" }, "suplentes": [{ "model": "openai/gpt-5.5" },] } },
     "proveedores": { "claude-code": { "concurrencia": 2, "plazoBaja": "5h" } },
   }`)
 
-  expect(result).toHaveProperty('config.agentes.director.titular.variant', 'high')
-  expect(result).toHaveProperty('config.papeles.protagonista.titular.variant', 'max')
+  expect(result).toHaveProperty('config.agentes.build.titular.variant', 'high')
   expect(result).toHaveProperty('config.proveedores.claude-code.concurrencia', 2)
 })
 
-test('agentes acepta cualquier nombre (nativos o futuros); papeles no', async () => {
+test('agentes acepta cualquier nombre; papeles ya no existe', async () => {
   expect(
     await load(`{ "agentes": { "plan": { "titular": { "model": "a/b" } }, "sisyphus": { "titular": { "model": "a/b" } } } }`),
   ).toHaveProperty('config')
   expect(await load(`{ "agentes": { "plan": { "suplentes": [] } } }`)).toHaveProperty('error')
+  expect(await load(`{ "papeles": { "rapido": { "titular": { "model": "a/b" } } } }`)).toHaveProperty('error')
 })
 
 test('plazoMs', () => {
@@ -49,15 +48,15 @@ test.each(['1w', '30', ''])('plazoMs rechaza una unidad inválida: %s', (plazo) 
 
 test.each([
   [`{ "agentes": { "director": { "suplentes": [] } } }`, `agentes.director: falta "titular"`],
-  [`{ "papeles": { "quick": { "titular": { "model": "a/b" } } } }`, 'papeles.quick: clave desconocida'],
-  [`{ "papeles": { "rapido": { "titular": { "model": "kimi-k3" } } } }`, 'papeles.rapido.titular.model'],
+  [`{ "papeles": { "quick": { "titular": { "model": "a/b" } } } }`, 'papeles: clave desconocida'],
+  [`{ "agentes": { "general": { "titular": { "model": "kimi-k3" } } } }`, 'agentes.general.titular.model'],
   [
-    `{ "papeles": { "rapido": { "titular": { "model": "a/b", "reasoning": "low" } } } }`,
-    'papeles.rapido.titular.reasoning: clave desconocida',
+    `{ "agentes": { "general": { "titular": { "model": "a/b", "reasoning": "low" } } } }`,
+    'agentes.general.titular.reasoning: clave desconocida',
   ],
   [
-    `{ "papeles": { "rapido": { "titular": { "model": "a/b" }, "suplentes": {} } } }`,
-    'papeles.rapido.suplentes: se esperaba una lista',
+    `{ "agentes": { "general": { "titular": { "model": "a/b" }, "suplentes": {} } } }`,
+    'agentes.general.suplentes: se esperaba una lista',
   ],
   [`{ "proveedores": { "openai": { "concurrencia": 0 } } }`, 'proveedores.openai.concurrencia: menor que 1'],
   [`{ "proveedores": { "openai": { "plazoBaja": 10080 } } }`, 'proveedores.openai.plazoBaja: se esperaba un texto'],

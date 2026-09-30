@@ -1,15 +1,11 @@
-import { Plugin } from '@opencode/plugin'
+import { Agent, Plugin } from '@opencode/plugin'
 
 import { publicar, validar } from './actores.ts'
-import { registrar } from './agentes.ts'
 import { bajasVigentes } from './bajas.ts'
 import { readCatalog } from './catalog.ts'
 import { configPath, loadConfig } from './config.ts'
-import { continuacion } from './continuacion.ts'
 import { db, ensureSchema } from './db.ts'
-import { encargos } from './encargos.ts'
-import { ensayo } from './ensayo.ts'
-import { estreno } from './estreno.ts'
+import { ensayo, revisores } from './ensayo.ts'
 import { registrarHooks } from './hooks.ts'
 import { log } from './log.ts'
 import { registrarTools } from './tools.ts'
@@ -17,37 +13,9 @@ import { registrarTools } from './tools.ts'
 // Id de esta copia del módulo: en 2.0.18 cada location importa la suya (sondas.md, S15).
 const modulo = crypto.randomUUID().slice(0, 8)
 
-export function suscribir(
-  ctx: Pick<Plugin.Context, 'event'> & { readonly location: { readonly directory: string } },
-  gestor: Pick<ReturnType<typeof encargos>, 'evento' | 'vigilar'>,
-  continuar: Pick<ReturnType<typeof continuacion>, 'evento'>,
-) {
-  const stop = new AbortController()
-
-  void (async () => {
-    try {
-      for await (const ev of ctx.event.subscribe({ signal: stop.signal })) {
-        await gestor.evento(ev)
-        void continuar.evento(ev)
-      }
-    } catch (error) {
-      if (!stop.signal.aborted) {
-        log.error('suscripción a eventos terminó', { location: ctx.location.directory, error: String(error) })
-      }
-    }
-  })()
-
-  const vigilante = setInterval(() => void gestor.vigilar(), 60_000)
-
-  return () => {
-    stop.abort()
-    clearInterval(vigilante)
-  }
-}
-
 export default Plugin.define({
   id: 'reparto',
-  // Setup nunca lanza: un plugin `failed` no deja ni el aviso al director (S2)
+  // Setup nunca lanza: un plugin `failed` no deja ni el aviso en el log (S2)
   setup: async (ctx) => {
     try {
       const path = configPath(ctx.options)
@@ -86,22 +54,17 @@ export default Plugin.define({
         }, 0)
       })
 
-      await ctx.agent.transform(registrar)
-      await ctx.command.transform((editor) =>
-        editor.add({
-          name: 'estreno',
-          description: 'Estrena un plan aprobado: /estreno .reparto/planes/<plan>.md [con-objeciones]',
-          execute: estreno(ctx),
-        }),
-      )
-      const continuar = continuacion(ctx)
-      const gestor = encargos(ctx)
-      const ensayar = ensayo(ctx, gestor)
-
-      await registrarHooks(ctx, config, continuar, gestor)
-      await registrarTools(ctx, gestor, ensayar)
-
-      return suscribir(ctx, gestor, continuar)
+      // Los agentes viven en la config de V2 (ADR 0014), que no tiene `name`: acá solo van los nombres visibles.
+      await ctx.agent.transform((editor) => {
+        editor.update('build', (agent) => {
+          agent.name = Agent.Name.make('Solista')
+        })
+        editor.update('plan', (agent) => {
+          agent.name = Agent.Name.make('Dramaturgo')
+        })
+      })
+      await registrarHooks(ctx, config)
+      await registrarTools(ctx, ensayo(ctx, revisores(ctx)))
     } catch (error) {
       log.error('inactivo: setup falló', { location: ctx.location.directory, error: String(error) })
     }

@@ -8,7 +8,8 @@ import { proceso } from './process.ts'
 
 const defaultDbPath = join(dataDir, 'reparto.db')
 
-// La sesión hija sigue siendo la fuente de verdad de la ejecución (ADR 0010): acá va solo lo que V2 no guarda.
+// Acá va solo lo que V2 no guarda (ADR 0010). En `versiones`, `ensayos` y `acta`, `plan` es el id de la sesión
+// Del Dramaturgo (ADR 0014). Las tablas de encargos, estrenos y continuaciones quedan huérfanas en bases viejas.
 const schema = `
 CREATE TABLE IF NOT EXISTS bajas (
   tipo TEXT NOT NULL CHECK (tipo IN ('proveedor', 'actor')),
@@ -21,41 +22,6 @@ CREATE TABLE IF NOT EXISTS pendientes (
   clave TEXT PRIMARY KEY,
   items TEXT NOT NULL,
   actualizado INTEGER NOT NULL
-);
-CREATE TABLE IF NOT EXISTS encargos (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  hija TEXT NOT NULL,
-  padre TEXT NOT NULL,
-  a TEXT NOT NULL,
-  actor TEXT NOT NULL,
-  background INTEGER NOT NULL,
-  estado TEXT NOT NULL CHECK (estado IN ('en_cola', 'corriendo', 'terminado', 'fallido', 'interrumpido', 'estancado')),
-  desde INTEGER,
-  cerrado INTEGER,
-  mensaje_final TEXT,
-  error TEXT,
-  aviso_pendiente INTEGER NOT NULL DEFAULT 0,
-  boot_id TEXT NOT NULL,
-  pid INTEGER NOT NULL,
-  starttime TEXT NOT NULL,
-  creado INTEGER NOT NULL
-);
-CREATE UNIQUE INDEX IF NOT EXISTS encargos_abierto ON encargos (hija) WHERE estado IN ('en_cola', 'corriendo', 'estancado');
-CREATE TABLE IF NOT EXISTS bitacora (
-  hija TEXT NOT NULL,
-  mensaje TEXT NOT NULL,
-  llamada TEXT NOT NULL,
-  tool TEXT NOT NULL,
-  argumentos TEXT NOT NULL,
-  resultado TEXT,
-  estado TEXT NOT NULL,
-  hora INTEGER NOT NULL,
-  PRIMARY KEY (hija, mensaje, llamada)
-);
-CREATE TABLE IF NOT EXISTS mensajes_hijas (
-  hija TEXT PRIMARY KEY,
-  desde INTEGER NOT NULL,
-  texto TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS versiones (
   plan TEXT NOT NULL,
@@ -81,36 +47,6 @@ CREATE TABLE IF NOT EXISTS acta (
   ronda_entrada INTEGER NOT NULL,
   estado TEXT NOT NULL CHECK (estado IN ('abierto', 'cerrado')),
   PRIMARY KEY (plan, id)
-);
-CREATE TABLE IF NOT EXISTS permisos (
-  request_id TEXT PRIMARY KEY,
-  hija TEXT NOT NULL,
-  action TEXT NOT NULL,
-  resources TEXT NOT NULL,
-  estado TEXT NOT NULL CHECK (estado IN ('pendiente', 'respondido'))
-);
-CREATE TABLE IF NOT EXISTS estrenos (
-  plan TEXT PRIMARY KEY,
-  hash TEXT NOT NULL,
-  fecha INTEGER NOT NULL,
-  tipo TEXT NOT NULL CHECK (tipo IN ('normal', 'con_objeciones')),
-  objeciones TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS sesiones_regidor (
-  sesion TEXT PRIMARY KEY,
-  plan TEXT NOT NULL,
-  hash TEXT NOT NULL
-);
-CREATE TABLE IF NOT EXISTS continuaciones (
-  sesion TEXT PRIMARY KEY,
-  clave TEXT NOT NULL,
-  firma TEXT,
-  intentos INTEGER NOT NULL DEFAULT 0,
-  interrumpido INTEGER NOT NULL DEFAULT 0,
-  detenido INTEGER NOT NULL DEFAULT 0
-);
-CREATE TABLE IF NOT EXISTS continuacion_eventos (
-  event_id TEXT PRIMARY KEY
 );
 `
 

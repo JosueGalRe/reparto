@@ -12,28 +12,8 @@
     },
     "agentes": {
       "type": "object",
-      "additionalProperties": { "$ref": "#/$defs/reparto" },
-      "properties": {
-        "director": { "$ref": "#/$defs/reparto" },
-        "build": { "$ref": "#/$defs/reparto" },
-        "utilero": { "$ref": "#/$defs/reparto" },
-        "archivista": { "$ref": "#/$defs/reparto" },
-        "tiresias": { "$ref": "#/$defs/reparto" },
-        "dramaturgo": { "$ref": "#/$defs/reparto" },
-        "critico": { "$ref": "#/$defs/reparto" },
-        "regidor": { "$ref": "#/$defs/reparto" }
-      }
-    },
-    "papeles": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "rapido": { "$ref": "#/$defs/reparto" },
-        "visual": { "$ref": "#/$defs/reparto" },
-        "protagonista": { "$ref": "#/$defs/reparto" },
-        "estelar": { "$ref": "#/$defs/reparto" },
-        "prosa": { "$ref": "#/$defs/reparto" }
-      }
+      "description": "Reparto por id de agente de V2 (nativo o de config). `ensayar` necesita `critico` y `tiresias`.",
+      "additionalProperties": { "$ref": "#/$defs/reparto" }
     },
     "proveedores": {
       "type": "object",

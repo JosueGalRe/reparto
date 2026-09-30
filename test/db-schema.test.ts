@@ -27,10 +27,6 @@ test('setup schema upgrades the cached connection from main without reconnecting
   // Then: phase-two tables exist on the very same connection.
   expect(db()).toBe(old)
   expect(
-    old
-      .query(
-        "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('versiones', 'ensayos', 'acta', 'estrenos', 'sesiones_regidor', 'continuaciones', 'continuacion_eventos')",
-      )
-      .all(),
-  ).toHaveLength(7)
+    old.query("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('versiones', 'ensayos', 'acta')").all(),
+  ).toHaveLength(3)
 })
