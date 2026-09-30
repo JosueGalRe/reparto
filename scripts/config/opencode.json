@@ -22,6 +22,48 @@
       "options": {
         "config": "/tmp/reparto-dev/reparto.jsonc"
       }
+    },
+    {
+      "package": "@plannotator/opencode@0.27.19",
+      "options": {
+        "workflow": "plan-agent",
+        "planningAgents": [
+          "plan"
+        ]
+      }
     }
-  ]
+  ],
+  "permissions": [
+    {
+      "action": "context7_*",
+      "resource": "*",
+      "effect": "deny"
+    },
+    {
+      "action": "grep_app_*",
+      "resource": "*",
+      "effect": "deny"
+    }
+  ],
+  "agents": {
+    "explore": {
+      "permissions": [
+        {
+          "action": "shell",
+          "resource": "*",
+          "effect": "allow"
+        },
+        {
+          "action": "codegraph_*",
+          "resource": "*",
+          "effect": "allow"
+        },
+        {
+          "action": "skill",
+          "resource": "*",
+          "effect": "allow"
+        }
+      ]
+    }
+  }
 }
