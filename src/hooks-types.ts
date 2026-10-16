@@ -10,6 +10,14 @@ export interface ContextoHija {
   }
 }
 
+export interface ContextoPrimaria {
+  readonly session: {
+    readonly get: (entrada: { sessionID: string }) => Promise<Pick<Sesion, 'parentID' | 'agent' | 'model' | 'metadata'>>
+    readonly switchModel: ContextoHija['session']['switchModel']
+  }
+  readonly storage: Pick<Plugin.Context['storage'], 'get' | 'set'>
+}
+
 export interface EvaluacionSubagent {
   readonly sessionID: string
   readonly agent?: string

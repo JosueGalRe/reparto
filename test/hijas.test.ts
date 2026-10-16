@@ -7,11 +7,11 @@ import { afterAll, beforeAll, expect, test } from 'bun:test'
 import { publicar, validacionLista } from '../src/actores.ts'
 import { registrarBaja } from '../src/bajas.ts'
 import { openDb } from '../src/db.ts'
-import { evaluarSubagent, imponerHija } from '../src/hooks.ts'
+import { evaluarSubagent, imponerHija, imponerPrimaria } from '../src/hooks.ts'
 import { proceso } from '../src/process.ts'
 
 import type { Config } from '../src/config.ts'
-import type { EvaluacionSubagent } from '../src/hooks-types.ts'
+import type { ContextoPrimaria, EvaluacionSubagent } from '../src/hooks-types.ts'
 
 const dir = mkdtempSync(join(tmpdir(), 'reparto-hijas-'))
 const config: Config = {
@@ -70,6 +70,44 @@ test('native child takes its configured actor on first and continued turns, incl
     { providerID: 'other', id: 'b' },
   ])
   proceso.db!.query('DELETE FROM bajas').run()
+})
+
+test('primary session keeps the model the client chose; without one it takes the actor once', async () => {
+  // Given: a primary session whose first prompt arrives with a model chosen in the client.
+  const session: { agent: string; model?: { providerID: string; id: string; variant?: string } } = {
+    agent: 'general',
+    model: { providerID: 'other', id: 'elegido' },
+  }
+  const switched: unknown[] = []
+  const storage = new Map<string, Parameters<ContextoPrimaria['storage']['set']>[1]>()
+  const ctx: ContextoPrimaria = {
+    session: {
+      get: async () => session,
+      switchModel: async (input) => {
+        switched.push(input.model)
+        session.model = input.model
+      },
+    },
+    storage: {
+      get: async (key) => storage.get(key),
+      set: async (key, value) => {
+        storage.set(key, value)
+      },
+    },
+  }
+
+  // When: it prompts twice; Then: reparto leaves the chosen model alone.
+  await imponerPrimaria(ctx, config, 'ses_elegido')
+  await imponerPrimaria(ctx, config, 'ses_elegido')
+  expect(switched).toEqual([])
+
+  // Given: a session without a model; When: its first and continued prompts arrive.
+  session.model = undefined
+  await imponerPrimaria(ctx, config, 'ses_sin_modelo')
+  await imponerPrimaria(ctx, config, 'ses_sin_modelo')
+  // Then: the titular is imposed once and recorded.
+  expect(switched).toEqual([{ providerID: 'luna', id: 'a', variant: 'low' }])
+  expect(storage.get('impuesto/ses_sin_modelo/general')).toEqual({ actor: 'luna/a#low' })
 })
 
 test('subagent permission denies a target with all actors on baja', () => {

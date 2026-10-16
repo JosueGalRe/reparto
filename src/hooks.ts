@@ -9,7 +9,7 @@ import { proceso } from './process.ts'
 import { esRegistro } from './validation-utils.ts'
 
 import type { Config } from './config.ts'
-import type { ContextoHija, EvaluacionSubagent } from './hooks-types.ts'
+import type { ContextoHija, ContextoPrimaria, EvaluacionSubagent } from './hooks-types.ts'
 import type { SessionPrompt } from '@opencode/plugin/promise/session'
 
 const debug = !!process.env.REPARTO_DEBUG
@@ -39,6 +39,52 @@ export async function imponerHija(ctx: ContextoHija, config: Config, sessionID: 
   }
 
   return true
+}
+
+/**
+ * Sesión primaria con reparto. El modelo que el cliente eligió para el primer mensaje (en `session.create` o con
+ * `switchModel`) se respeta. Si llega sin modelo, se impone el actor resuelto, y de ahí en más también en el primer
+ * turno después de que empiece o termine una baja que lo cambie. Lo impuesto va en ctx.storage para que una recarga o
+ * un reinicio no lo tomen como primer turno.
+ */
+export async function imponerPrimaria(ctx: ContextoPrimaria, config: Config, sessionID: string) {
+  const sesion = await ctx.session.get({ sessionID })
+  const agente = sesion.agent ?? 'build'
+
+  // Hijas sin reparto heredan el modelo del padre; los revisores del ensayo ya nacen con su actor.
+  if (sesion.parentID || sesion.metadata?.padre || !conReparto(config, agente)) {
+    return
+  }
+
+  const clave = `impuesto/${sessionID}/${agente}`
+  const previo = await ctx.storage.get(clave)
+
+  if (previo === undefined && sesion.model) {
+    return
+  }
+
+  const validacion = await validacionLista()
+  const actor = validacion && resolver(validacion, agente, deBaja(bajasVigentes(db())))
+
+  if (!actor) {
+    return log.warn('sin actor para imponer', { sessionID, agente })
+  }
+
+  const actorPrevio = esRegistro(previo) ? previo.actor : undefined
+
+  if (typeof actorPrevio === 'string' && actorPrevio === etiqueta(actor)) {
+    return
+  }
+
+  await ctx.session.switchModel({ sessionID, model: modelRef(actor) })
+  await ctx.storage.set(clave, { actor: etiqueta(actor) })
+  log.info('actor impuesto', {
+    sessionID,
+    agente,
+    actor: etiqueta(actor),
+    motivo: previo ? `cambió el actor resuelto (antes ${actorPrevio})` : 'primer turno sin modelo',
+    antes: sesion.model ?? null,
+  })
 }
 
 export function evaluarSubagent(input: EvaluacionSubagent, config: Config) {
@@ -117,48 +163,11 @@ export async function registrarHooks(ctx: Plugin.Context, config: Config) {
     }
   })
 
-  // Sesiones primarias: el actor resuelto se impone en el primer turno y en el primer turno después de que
-  // Empiece o termine una baja que lo cambie. El resto del tiempo se respeta el modelo de la sesión, así que un
-  // Cambio a mano no se revierte. Lo impuesto va en ctx.storage para que una recarga o un reinicio no lo tomen
-  // Como primer turno.
   await ctx.session.hook('prompt', async (input) => {
     try {
-      if (await imponerHija(ctx, config, input.sessionID)) {
-        return
+      if (!(await imponerHija(ctx, config, input.sessionID))) {
+        await imponerPrimaria(ctx, config, input.sessionID)
       }
-
-      const sesion = await ctx.session.get({ sessionID: input.sessionID })
-      const agente = sesion.agent ?? 'build'
-
-      // Hijas sin reparto heredan el modelo del padre; los revisores del ensayo ya nacen con su actor.
-      if (sesion.parentID || sesion.metadata?.padre || !conReparto(config, agente)) {
-        return
-      }
-
-      const clave = `impuesto/${input.sessionID}/${agente}`
-      const validacion = await validacionLista()
-      const actor = validacion && resolver(validacion, agente, deBaja(bajasVigentes(db())))
-
-      if (!actor) {
-        return log.warn('sin actor para imponer', { sessionID: input.sessionID, agente })
-      }
-
-      const previo = await ctx.storage.get(clave)
-      const actorPrevio = esRegistro(previo) ? previo.actor : undefined
-
-      if (typeof actorPrevio === 'string' && actorPrevio === etiqueta(actor)) {
-        return
-      }
-
-      await ctx.session.switchModel({ sessionID: input.sessionID, model: modelRef(actor) })
-      await ctx.storage.set(clave, { actor: etiqueta(actor) })
-      log.info('actor impuesto', {
-        sessionID: input.sessionID,
-        agente,
-        actor: etiqueta(actor),
-        motivo: previo ? `cambió el actor resuelto (antes ${actorPrevio})` : 'primer turno',
-        antes: sesion.model ?? null,
-      })
     } catch (error) {
       log.error('hook prompt falló', { sessionID: input.sessionID, error: String(error) })
       throw error
