@@ -9,7 +9,7 @@ import { proceso } from './process.ts'
 import { esRegistro } from './validation-utils.ts'
 
 import type { Config } from './config.ts'
-import type { ContextoHija, ContextoPrimaria, EvaluacionSubagent } from './hooks-types.ts'
+import type { ContextoHija, ContextoPrimaria, EvaluacionSubagent, LlamadaTool } from './hooks-types.ts'
 import type { SessionPrompt } from '@opencode/plugin/promise/session'
 
 const debug = !!process.env.REPARTO_DEBUG
@@ -17,13 +17,69 @@ const debug = !!process.env.REPARTO_DEBUG
 /** ¿Tiene reparto en la config? `hasOwn`: un agente llamado `constructor` no hereda el prototipo. */
 const conReparto = (config: Config, agente: string) => Object.hasOwn(config.agentes ?? {}, agente)
 
-/** Hija nativa de un agente con reparto: corre con su actor, nunca con el modelo heredado del padre. */
+const pedidos = (): NonNullable<typeof proceso.pedidos> => (proceso.pedidos ??= new Map())
+
+/**
+ * `subagent` con `model` explícito a un agente con reparto: se anota para que la hija lo conserve, como la primaria
+ * conserva el que eligió el cliente. V2 crea la hija con ese modelo pero no deja rastro de que fue pedido.
+ */
+export function anotarPedido(llamada: LlamadaTool, config: Config) {
+  const entrada = llamada.input
+
+  if (llamada.tool !== 'subagent' || !esRegistro(entrada) || typeof entrada.agent !== 'string') {
+    return
+  }
+
+  // V2 borra un `model: ""` en su propio execute.before, que puede correr después de este.
+  if (typeof entrada.model !== 'string' || !entrada.model || !conReparto(config, entrada.agent)) {
+    return
+  }
+
+  const [model = '', variant] = entrada.model.split('#', 2)
+
+  pedidos().set(llamada.id, {
+    padre: llamada.sessionID,
+    agente: entrada.agent,
+    actor: variant ? { model, variant } : { model },
+  })
+}
+
+// Ponytail: dos `subagent` en paralelo al mismo agente, uno pedido y otro heredando ese mismo modelo, pueden cruzarse.
+function tomarPedido(padre: string, agente: string, modelo: Parameters<typeof esActor>[1]) {
+  for (const [id, pedido] of pedidos()) {
+    if (pedido.padre === padre && pedido.agente === agente && esActor(pedido.actor, modelo)) {
+      pedidos().delete(id)
+
+      return true
+    }
+  }
+
+  return false
+}
+
+/**
+ * Hija nativa de un agente con reparto: corre con su actor, nunca con el modelo heredado del padre. Si el `subagent`
+ * pidió un modelo, lo conserva en todos sus turnos; una falla de ese modelo cae igual en los suplentes del agente.
+ */
 export async function imponerHija(ctx: ContextoHija, config: Config, sessionID: string) {
   const sesion = await ctx.session.get({ sessionID })
   const agente = sesion.agent ?? ''
 
   if (!sesion.parentID || !conReparto(config, agente)) {
     return false
+  }
+
+  const clave = `elegido/${sessionID}`
+
+  if (sesion.model && tomarPedido(sesion.parentID, agente, sesion.model)) {
+    await ctx.storage.set(clave, true)
+    log.info('modelo pedido respetado', { sessionID, agente, modelo: sesion.model })
+
+    return true
+  }
+
+  if ((await ctx.storage.get(clave)) !== undefined) {
+    return true
   }
 
   const validacion = await validacionLista()
@@ -91,6 +147,11 @@ export function evaluarSubagent(input: EvaluacionSubagent, config: Config) {
   const destino = input.resources[0]
 
   if (input.action !== 'subagent' || input.effect !== 'allow' || !destino || !conReparto(config, destino)) {
+    return
+  }
+
+  // Con un modelo pedido, la hija no depende de los actores del agente.
+  if ([...pedidos().values()].some((pedido) => pedido.padre === input.sessionID && pedido.agente === destino)) {
     return
   }
 
@@ -181,6 +242,9 @@ export async function registrarHooks(ctx: Plugin.Context, config: Config) {
     }
   })
 
+  // `execute.before` corre antes de que el `subagent` cree la hija, y `execute.after` cuando ya pidió su primer prompt.
+  await ctx.tool.hook('execute.before', (llamada) => anotarPedido(llamada, config))
+  await ctx.tool.hook('execute.after', (llamada) => void pedidos().delete(llamada.id))
   // Solo corre cuando las reglas ya dieron allow (S7): sirve para negar, no para permitir.
   await ctx.permission.hook('evaluate', (input) => evaluarSubagent(input, config))
   // `submit_plan` es tool de plugin y no pide permiso, así que `evaluate` no la ve: el gate va antes de ejecutarla.

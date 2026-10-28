@@ -7,11 +7,22 @@ import { afterAll, beforeAll, expect, test } from 'bun:test'
 import { publicar, validacionLista } from '../src/actores.ts'
 import { registrarBaja } from '../src/bajas.ts'
 import { openDb } from '../src/db.ts'
-import { evaluarSubagent, imponerHija, imponerPrimaria } from '../src/hooks.ts'
+import { anotarPedido, evaluarSubagent, imponerHija, imponerPrimaria } from '../src/hooks.ts'
 import { proceso } from '../src/process.ts'
 
 import type { Config } from '../src/config.ts'
-import type { ContextoPrimaria, EvaluacionSubagent } from '../src/hooks-types.ts'
+import type { ContextoHija, ContextoPrimaria, EvaluacionSubagent } from '../src/hooks-types.ts'
+
+function almacen(): ContextoHija['storage'] {
+  const datos = new Map<string, Parameters<ContextoHija['storage']['set']>[1]>()
+
+  return {
+    get: async (key) => datos.get(key),
+    set: async (key, value) => {
+      datos.set(key, value)
+    },
+  }
+}
 
 const dir = mkdtempSync(join(tmpdir(), 'reparto-hijas-'))
 const config: Config = {
@@ -53,6 +64,7 @@ test('native child takes its configured actor on first and continued turns, incl
         session.model = input.model
       },
     },
+    storage: almacen(),
   }
 
   // When: its first prompt and continued prompt arrive.
@@ -70,6 +82,43 @@ test('native child takes its configured actor on first and continued turns, incl
     { providerID: 'other', id: 'b' },
   ])
   proceso.db!.query('DELETE FROM bajas').run()
+})
+
+test('native child keeps the model its subagent call asked for, even with every actor on baja', async () => {
+  // Given: a subagent call to general with an explicit model, one with an empty model, and every actor on baja.
+  anotarPedido(
+    { tool: 'subagent', sessionID: 'ses_parent', id: 'call_1', input: { agent: 'general', model: 'kimi/k3#high' } },
+    config,
+  )
+  anotarPedido({ tool: 'subagent', sessionID: 'ses_parent', id: 'call_2', input: { agent: 'general', model: '' } }, config)
+  registrarBaja(proceso.db!, { tipo: 'proveedor', id: 'luna', motivo: 'cuota', hasta: Date.now() + 60_000 })
+  registrarBaja(proceso.db!, { tipo: 'proveedor', id: 'other', motivo: 'cuota', hasta: Date.now() + 60_000 })
+  const permiso: EvaluacionSubagent = { action: 'subagent', effect: 'allow', sessionID: 'ses_parent', resources: ['general'] }
+
+  // When: the call is evaluated; Then: it passes, and only the explicit model was recorded.
+  evaluarSubagent(permiso, config)
+  expect(permiso.effect).toBe('allow')
+  expect([...(proceso.pedidos?.keys() ?? [])]).toEqual(['call_1'])
+  proceso.db!.query('DELETE FROM bajas').run()
+
+  // Given: the child V2 created with that model, and a sibling that inherited the parent's.
+  const switched: unknown[] = []
+  const ctx = (model: { providerID: string; id: string; variant?: string }): ContextoHija => ({
+    session: {
+      get: async () => ({ parentID: 'ses_parent', agent: 'general', model }),
+      switchModel: async (input) => void switched.push(input.model),
+    },
+    storage: almacen(),
+  })
+  const pedida = ctx({ providerID: 'kimi', id: 'k3', variant: 'high' })
+
+  // When: the child prompts twice and the sibling once.
+  expect(await imponerHija(pedida, config, 'ses_pedida')).toBe(true)
+  expect(await imponerHija(pedida, config, 'ses_pedida')).toBe(true)
+  expect(await imponerHija(ctx({ providerID: 'kimi', id: 'k3', variant: 'high' }), config, 'ses_hermana')).toBe(true)
+  // Then: the asked-for child is never switched; the sibling, with the pedido already consumed, takes the titular.
+  expect(switched).toEqual([{ providerID: 'luna', id: 'a', variant: 'low' }])
+  proceso.pedidos?.clear()
 })
 
 test('primary session keeps the model the client chose; without one it takes the actor once', async () => {
@@ -139,6 +188,7 @@ test('children without reparto keep the parent model; unconfigured subagent targ
         throw new Error('no debe cambiar el modelo')
       },
     },
+    storage: almacen(),
   }
   const input: EvaluacionSubagent = { action: 'subagent', effect: 'allow', sessionID: 'ses_parent', resources: ['tiresias'] }
 
@@ -181,6 +231,7 @@ test('native child fails closed if its actor is unavailable or switchModel fails
         throw new Error('switch failed')
       },
     },
+    storage: almacen(),
   }
 
   // When: V2 cannot switch the actor; Then: prompt rejects rather than using the inherited model.

@@ -1,5 +1,6 @@
 import type { Validacion } from './actores.ts'
 import type { ErrorCrudo } from './bajas.ts'
+import type { Actor } from './config.ts'
 import type { Database } from 'bun:sqlite'
 
 /** Estado compartido por todas las instancias del proceso. */
@@ -14,6 +15,8 @@ interface Proceso {
   errores?: Map<string, ErrorCrudo>
   /** Fallos 5xx seguidos del actor actual, por sesión. */
   fallos?: Map<string, { actor: string; n: number }>
+  /** `subagent` con `model` explícito, por id de la tool call, hasta que su hija lo consume o la call termina. */
+  pedidos?: Map<string, { padre: string; agente: string; actor: Actor }>
 }
 
 // En 2.0.18 cada location importa su propia copia del módulo, pero todas comparten globalThis (sondas.md, S15).

@@ -6,7 +6,7 @@ reparto es un plugin nativo de OpenCode V2 que reemplaza a oh-my-opencode (OMO) 
 
 ## Cómo funciona
 
-Cada agente de V2 con entrada en `reparto.jsonc` tiene un actor titular (un modelo con su variant) y suplentes en orden. reparto impone el titular en cada hija nativa, en lugar del modelo que heredaría de su padre, y en el primer turno de una sesión que llega sin modelo. El modelo que elijas para el primer mensaje se respeta. Si el titular se da de baja por cuota agotada, 5xx repetidos o auth, el siguiente pedido ya sale con el primer suplente disponible, sin cortar la sesión.
+Cada agente de V2 con entrada en `reparto.jsonc` tiene un actor titular (un modelo con su variant) y suplentes en orden. reparto impone el titular en cada hija nativa, en lugar del modelo que heredaría de su padre, y en el primer turno de una sesión que llega sin modelo. El modelo que elijas para el primer mensaje se respeta, y también el `model` que el `subagent` pida para una hija. Si el titular se da de baja por cuota agotada, 5xx repetidos o auth, el siguiente pedido ya sale con el primer suplente disponible, sin cortar la sesión.
 
 ```mermaid
 flowchart LR

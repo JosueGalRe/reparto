@@ -8,6 +8,7 @@ export interface ContextoHija {
     readonly get: (entrada: { sessionID: string }) => Promise<Pick<Sesion, 'parentID' | 'agent' | 'model'>>
     readonly switchModel: (entrada: Parameters<Plugin.Context['session']['switchModel']>[0]) => Promise<unknown>
   }
+  readonly storage: Pick<Plugin.Context['storage'], 'get' | 'set'>
 }
 
 export interface ContextoPrimaria {
@@ -15,7 +16,14 @@ export interface ContextoPrimaria {
     readonly get: (entrada: { sessionID: string }) => Promise<Pick<Sesion, 'parentID' | 'agent' | 'model' | 'metadata'>>
     readonly switchModel: ContextoHija['session']['switchModel']
   }
-  readonly storage: Pick<Plugin.Context['storage'], 'get' | 'set'>
+  readonly storage: ContextoHija['storage']
+}
+
+export interface LlamadaTool {
+  readonly tool: string
+  readonly sessionID: string
+  readonly id: string
+  readonly input: unknown
 }
 
 export interface EvaluacionSubagent {
