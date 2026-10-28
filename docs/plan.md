@@ -1,6 +1,6 @@
 # Plan por fases: reparto
 
-**Histórico.** El [ADR 0014](./adr/0014-suplencias-y-agentes-reales.md) quitó el director, el regidor, los papeles y el estreno: de este plan siguen vigentes las suplencias, `pendientes` y el ensayo general.
+**Histórico.** El [ADR 0014](./adr/0014-suplencias-y-agentes-reales.md) quitó el director, el regidor, los papeles y el estreno: de este plan siguen vigentes las suplencias y el ensayo general (`pendientes` también se fue).
 
 Vocabulario en [CONTEXT.md](../CONTEXT.md) y decisiones en [docs/adr/](./adr/). Este plan ordena el trabajo y define cómo se verifica cada paso; no vuelve a decidir lo que ya está en los ADRs.
 

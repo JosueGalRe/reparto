@@ -85,10 +85,9 @@ Para el ensayo hacen falta los agentes `critico` y `tiresias` en la config de V2
 
 ## Tools
 
-| Tool         | Qué hace                                                                                                                |
-| ------------ | ----------------------------------------------------------------------------------------------------------------------- |
-| `ensayar`    | Solo para el Compositor. Corre una ronda del ensayo general sobre el texto del plan; devuelve los veredictos y el acta. |
-| `pendientes` | Lee o reescribe la lista de trabajo de la sesión. Sobrevive a la compactación.                                          |
+| Tool      | Qué hace                                                                                                                |
+| --------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `ensayar` | Solo para el Compositor. Corre una ronda del ensayo general sobre el texto del plan; devuelve los veredictos y el acta. |
 
 ## Desarrollo
 

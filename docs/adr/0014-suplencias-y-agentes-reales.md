@@ -5,13 +5,12 @@ Reemplaza a los ADR 0006, 0007, 0012 y 0013, y enmienda el 0011.
 reparto deja de orquestar. Queda lo que funciona sin que el modelo coopere, más el ensayo:
 
 - **Suplencias** para cualquier agente de V2 con entrada en `reparto.jsonc`: nativos (`build`, `plan`, `explore`, `general`) o de config. El actor se impone en cada hija nativa y en el primer turno de una sesión primaria que llega sin modelo; el modelo que el cliente eligió para el primer mensaje se respeta. El `retry` cambia de suplente según el tipo de error (ADR 0004).
-- **`pendientes`**, la lista de trabajo que sobrevive a la compactación. V2 no trae una nativa.
 - **Ensayo general** antes de `submit_plan` (plannotator), obligatorio.
 - **Nombres visibles**: `build` se muestra como Solista y `plan` como Compositor. El config de V2 no tiene `name`, así que eso queda en el plugin.
 
 Los agentes viven en la config de V2 como agentes reales, no inyectados por el plugin: `tiresias`, `critico`, `archivista` y el guion del Compositor (`plan.md`) están en `agentes/` del repo, y la config los enlaza (en mi PC) o los copia (`scripts/instalar.sh`, en las que no tienen mis dotfiles). V2 los recarga en caliente, así que cambiar un guion ya no pide `build` y `publicar`. Con `utilero` no hace falta un agente: su papel lo cubre el `explore` nativo, con `shell`, `codegraph_*` y `skill` agregados en `opencode.json`.
 
-Se van el director, el regidor, `/estreno`, la continuación, los papeles, el shell de solo lectura, `bitacora`, `interrumpir` y `migrate-omo`.
+Se van el director, el regidor, `/estreno`, la continuación, los papeles, el shell de solo lectura, `bitacora`, `interrumpir`, `migrate-omo` y `pendientes`.
 
 ## Por qué
 
@@ -37,4 +36,5 @@ El Compositor es el `plan` nativo porque plannotator ya lo tiene como agente de 
 - OpenChamber y la TUI siempre mandan un modelo antes del primer prompt (S10; en el log, todas las imposiciones de primer turno tenían `antes`), así que el titular de una sesión primaria solo entra en sesiones creadas por API sin modelo o por una suplencia. Imponerlo siempre pisaba lo elegido, incluidas las tareas programadas.
 - El primer prompt tras un reinicio espera la validación, hasta 5 s: V2 la publica unos cientos de ms después del setup, y antes ese primer turno corría con el modelo por defecto.
 - Un plan por sesión: un segundo plan en la misma sesión hereda el acta del primero.
-- Las tablas de encargos, estrenos y continuaciones quedan huérfanas en las bases viejas; no se borran.
+- `pendientes` se quitó después: se usó en 4 sesiones en cinco días, y OpenChamber ya trae Todos y planes con checklist que Bryan ve en el panel. Lo que se pierde es la lista de pasos de la tarea en curso que sobrevivía a la compactación; los Todos de OpenChamber son el backlog del proyecto, no esa lista.
+- Las tablas de encargos, estrenos, continuaciones y pendientes quedan huérfanas en las bases viejas; no se borran.
