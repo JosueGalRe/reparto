@@ -91,11 +91,16 @@ interface Ref {
   variant?: string
 }
 
+const mismoModelo = (actor: Actor, modelo: Ref) => actor.model === `${modelo.providerID}/${modelo.id}`
+
 /** ¿La sesión corre con este actor? V2 reporta `default` como variant cuando no se pidió ninguno. */
 export const esActor = (actor: Actor, modelo: Ref) =>
-  actor.model === `${modelo.providerID}/${modelo.id}` && (actor.variant ?? 'default') === (modelo.variant ?? 'default')
+  mismoModelo(actor, modelo) && (actor.variant ?? 'default') === (modelo.variant ?? 'default')
 
-/** Suplente: el primer actor después del actual que no esté fuera. Si el actual no es de la lista, el primero disponible. */
+/**
+ * Suplente: el primer actor después del actual que no esté fuera ni sea el mismo modelo. El actual se ubica por modelo:
+ * su variant puede ser el que eligió el cliente y no el de la lista. Si no es de la lista, el primero disponible.
+ */
 export function siguiente(
   validacion: Validacion,
   nombre: string,
@@ -105,8 +110,8 @@ export function siguiente(
   const lista = validacion.actores.get(nombre) ?? []
 
   return lista
-    .slice(lista.findIndex((actor) => esActor(actor, actual)) + 1)
-    .find((actor) => !fuera(actor) && !esActor(actor, actual))
+    .slice(lista.findIndex((actor) => mismoModelo(actor, actual)) + 1)
+    .find((actor) => !fuera(actor) && !mismoModelo(actor, actual))
 }
 
 /** La primera validación llega unos cientos de ms después del setup: el primer prompt tras un reinicio la espera. */

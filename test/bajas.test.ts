@@ -140,3 +140,16 @@ test('siguiente: después del actual y sin bajas; `default` en la sesión equiva
     variant: 'max',
   })
 })
+
+test('siguiente ubica al actual por modelo: el variant que eligió el cliente no lo saca de la lista', () => {
+  const opus = { providerID: 'claude-code', id: 'claude-opus-5-5', variant: 'max' }
+
+  // Antes caía en el mismo claude-code/claude-opus-5-5, sin variant: el mismo modelo que acababa de fallar.
+  expect(siguiente(validacion, 'visual', opus, () => false)).toEqual({
+    model: 'claude-code/claude-fable-5-1',
+    variant: 'xhigh',
+  })
+  expect(siguiente(validacion, 'visual', { providerID: 'opencode-go', id: 'kimi-k3', variant: 'max' }, () => false)).toBe(
+    undefined,
+  )
+})
