@@ -4,7 +4,7 @@ Cuando falla una llamada a un modelo, el alcance depende del tipo de error:
 
 - **Cuota agotada**: da de baja al proveedor entero, en todas las sesiones, agentes y papeles, hasta el reset que informe el proveedor. Si no lo informa, la baja dura hasta que vence un plazo configurable por proveedor.
 - **5xx o timeout**: se reintenta el mismo actor, y el suplente entra después de N fallos.
-- **Auth**: da de baja al proveedor entero por un plazo configurable (30 min por defecto) y entra el suplente. Un token que vence y se renueva a mano, como el de Kiro (8 h fijas), pide un plazo largo; al renovarlo, la baja se levanta borrando su fila.
+- **Auth**: da de baja al proveedor entero por un plazo configurable (30 min por defecto) y entra el suplente. El plazo conviene corto aunque el token se renueve a mano, como el de Kiro (8 h fijas): reparto no ve la renovación, y una baja larga que se renueva de noche deja al proveedor afuera horas después del login.
 
 El turno que falló se reintenta con el suplente, sin reenviar el mensaje del usuario. Quién entró se ve en la marca `model-switched` que V2 deja en la sesión, y en un encargo también en el aviso al padre ("entró como suplente en lugar de …"). No se inyecta un mensaje en la sesión: si llega después de la respuesta abre un paso más, y en un encargo esa respuesta pisaba el mensaje final (1.8). Cuando vence la baja, el titular vuelve en las sesiones nuevas, y en la sesión del director al empezar tu siguiente turno. La sesión de un papel conserva su actor hasta terminar, para no perder el prompt cache a mitad del trabajo. Las bajas se guardan en la base de estado de reparto (ADR 0010), así que sobreviven a los reinicios y las comparten todos los procesos de OpenCode.
 
