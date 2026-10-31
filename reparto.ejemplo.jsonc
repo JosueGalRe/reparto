@@ -43,4 +43,9 @@
       "suplentes": [{ "model": "github-copilot/gpt-6.1-sol" }, { "model": "github-copilot/claude-opus-5.5" }],
     },
   },
+  "proveedores": {
+    // El token de Kiro vence a las 8 h y se renueva a mano: la baja cubre la noche. Al volver a iniciar sesión, se
+    // Levanta con `sqlite3 ~/.local/share/reparto/reparto.db "DELETE FROM bajas WHERE id = 'kiro'"`.
+    "kiro": { "plazoAuth": "12h" },
+  },
 }

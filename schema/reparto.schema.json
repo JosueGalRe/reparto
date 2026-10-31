@@ -30,6 +30,11 @@
             "type": "string",
             "pattern": "^\\d+[mhd]$",
             "description": "Duración de una baja por cuota si el proveedor no informa el reset: \"30m\", \"5h\", \"7d\"."
+          },
+          "plazoAuth": {
+            "type": "string",
+            "pattern": "^\\d+[mhd]$",
+            "description": "Duración de una baja por un error de autenticación. Default \"30m\"; largo si el token vence y se renueva a mano."
           }
         }
       }

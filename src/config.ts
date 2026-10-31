@@ -17,6 +17,7 @@ export interface Reparto {
 
 interface Proveedor {
   plazoBaja?: string
+  plazoAuth?: string
 }
 
 export interface Config {

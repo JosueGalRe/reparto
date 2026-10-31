@@ -17,7 +17,7 @@ flowchart LR
     suplente1 -.->|baja| suplente2[suplente 2]
 ```
 
-Las bajas viven en SQLite y las comparten todos los procesos de OpenCode: una cuota agotada en OpenAI da de baja a todos los modelos de ese proveedor, en todas las sesiones, hasta el reset que informe el proveedor o hasta que venza `plazoBaja`.
+Las bajas viven en SQLite y las comparten todos los procesos de OpenCode: una cuota agotada en OpenAI da de baja a todos los modelos de ese proveedor, en todas las sesiones, hasta el reset que informe el proveedor o hasta que venza `plazoBaja`. Un error de autenticación también da de baja al proveedor, hasta `plazoAuth`.
 
 ## Los agentes
 
@@ -79,7 +79,7 @@ curl -fsSL https://raw.githubusercontent.com/JosueGalRe/reparto/estable/scripts/
 }
 ```
 
-Cada reparto es `{ titular, suplentes? }` y cada actor es `{ model: "<providerID>/<modelID>", variant? }`. El variant es el id exacto del catálogo de V2; si lo omites, corre el default del proveedor. `fallosInternos` es cuántos 5xx o timeouts seguidos aguanta un actor antes de que entre su suplente (default 3). `plazoBaja` (`"30m"`, `"5h"`, `"7d"`) es cuánto dura una baja por cuota si el proveedor no informa el reset. Un agente sin entrada queda en manos de V2: sus hijas heredan el modelo del padre. Si la config no cumple el schema, el plugin queda inactivo y lo dice en el log.
+Cada reparto es `{ titular, suplentes? }` y cada actor es `{ model: "<providerID>/<modelID>", variant? }`. El variant es el id exacto del catálogo de V2; si lo omites, corre el default del proveedor. `fallosInternos` es cuántos 5xx o timeouts seguidos aguanta un actor antes de que entre su suplente (default 3). `plazoBaja` (`"30m"`, `"5h"`, `"7d"`) es cuánto dura una baja por cuota si el proveedor no informa el reset, y `plazoAuth` cuánto dura una por un error de autenticación (default 30m). Para levantar una baja antes, por ejemplo después de volver a iniciar sesión: `sqlite3 ~/.local/share/reparto/reparto.db "DELETE FROM bajas WHERE id = 'kiro'"`. Un agente sin entrada queda en manos de V2: sus hijas heredan el modelo del padre. Si la config no cumple el schema, el plugin queda inactivo y lo dice en el log.
 
 Para el ensayo hacen falta los agentes `critico` y `tiresias` en la config de V2, con entrada en `reparto.jsonc`, y el Compositor tiene que saber usar `ensayar`: son los de [`agentes/`](./agentes/). Los agentes de solo lectura repiten al final las restricciones de la base, porque gana la última regla que coincide.
 

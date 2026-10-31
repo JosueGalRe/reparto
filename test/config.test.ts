@@ -22,11 +22,12 @@ test('acepta JSONC con comentarios y comas finales', async () => {
   const result = await load(`{
     // Solista
     "agentes": { "build": { "titular": { "model": "claude-code/claude-opus-5-5", "variant": "high" }, "suplentes": [{ "model": "openai/gpt-5.5" },] } },
-    "proveedores": { "claude-code": { "concurrencia": 2, "plazoBaja": "5h" } },
+    "proveedores": { "claude-code": { "concurrencia": 2, "plazoBaja": "5h", "plazoAuth": "12h" } },
   }`)
 
   expect(result).toHaveProperty('config.agentes.build.titular.variant', 'high')
   expect(result).toHaveProperty('config.proveedores.claude-code.concurrencia', 2)
+  expect(result).toHaveProperty('config.proveedores.claude-code.plazoAuth', '12h')
 })
 
 test('agentes acepta cualquier nombre; papeles ya no existe', async () => {
@@ -61,6 +62,7 @@ test.each([
   [`{ "proveedores": { "openai": { "concurrencia": 0 } } }`, 'proveedores.openai.concurrencia: menor que 1'],
   [`{ "proveedores": { "openai": { "plazoBaja": 10080 } } }`, 'proveedores.openai.plazoBaja: se esperaba un texto'],
   [`{ "proveedores": { "openai": { "plazoBaja": "1w" } } }`, 'proveedores.openai.plazoBaja: "1w" no cumple'],
+  [`{ "proveedores": { "kiro": { "plazoAuth": "12" } } }`, 'proveedores.kiro.plazoAuth: "12" no cumple'],
   [`[]`, '(raíz): se esperaba un objeto'],
 ])('rechaza estructura rota: %s', async (text, message) => {
   const result = await load(text)

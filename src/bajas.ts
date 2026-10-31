@@ -5,7 +5,7 @@ import { log } from './log.ts'
 import { proceso } from './process.ts'
 import { esRegistro } from './validation-utils.ts'
 
-import type { Plugin } from '@opencode/plugin'
+import type { ContextoHija } from './hooks-types.ts'
 import type { SessionRetry } from '@opencode/plugin/promise/session'
 import type { Database } from 'bun:sqlite'
 
@@ -184,10 +184,21 @@ const claveModelo = (modelo: { providerID: string; id: string; variant?: string 
   `${modelo.providerID}/${modelo.id}#${modelo.variant ?? 'default'}`
 
 const PLAZO_BAJA = '5h'
+const PLAZO_AUTH = '30m'
 const FALLOS_INTERNOS = 3
 
 const errores = () => (proceso.errores ??= new Map())
 const fallos = () => (proceso.fallos ??= new Map())
+
+/** Lo que el `retry` lee de SessionRetry. */
+interface Reintento {
+  readonly sessionID: string
+  readonly agent: string
+  readonly model: { readonly providerID: string; readonly id: string; readonly variant?: string }
+  readonly error: { readonly type: string; readonly message: string }
+  readonly attempt: number
+  decision: SessionRetry['decision']
+}
 
 function guardar(
   sessionID: string,
@@ -199,8 +210,8 @@ function guardar(
   guardarError(errores(), sessionID, kind, { actor: claveModelo(model), cuerpo, headers })
 }
 
-export function suplencias(ctx: Plugin.Context, config: Config) {
-  async function retry(reintento: SessionRetry) {
+export function suplencias(ctx: { readonly session: Pick<ContextoHija['session'], 'switchModel'> }, config: Config) {
+  async function retry(reintento: Reintento) {
     const actual = {
       providerID: String(reintento.model.providerID),
       id: String(reintento.model.id),
@@ -234,15 +245,20 @@ export function suplencias(ctx: Plugin.Context, config: Config) {
       }
     }
 
-    if (clase.tipo === 'cuota') {
+    // Una falla de auth también es del proveedor entero, y sin baja cada sesión y cada turno volvía a fallar primero ahí.
+    if (clase.tipo === 'cuota' || clase.tipo === 'auth') {
       const proveedor = actual.providerID
-      const hasta = clase.hasta ?? Date.now() + plazoMs(config.proveedores?.[proveedor]?.plazoBaja ?? PLAZO_BAJA)
+      const plazos = config.proveedores?.[proveedor]
+      const plazo = clase.tipo === 'cuota' ? (plazos?.plazoBaja ?? PLAZO_BAJA) : (plazos?.plazoAuth ?? PLAZO_AUTH)
+      const informado = clase.tipo === 'cuota' ? clase.hasta : undefined
+      const hasta = informado ?? Date.now() + plazoMs(plazo)
 
-      registrarBaja(db(), { tipo: 'proveedor', id: proveedor, motivo: `cuota: ${reintento.error.message}`, hasta })
+      registrarBaja(db(), { tipo: 'proveedor', id: proveedor, motivo: `${clase.tipo}: ${reintento.error.message}`, hasta })
       log.warn('baja', {
         proveedor,
+        motivo: clase.tipo,
         hasta: new Date(hasta).toISOString(),
-        reset: clase.hasta !== undefined,
+        reset: informado !== undefined,
         sessionID: reintento.sessionID,
       })
     }
