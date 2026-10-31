@@ -189,6 +189,7 @@ const FALLOS_INTERNOS = 3
 
 const errores = () => (proceso.errores ??= new Map())
 const fallos = () => (proceso.fallos ??= new Map())
+const cambios = () => (proceso.cambios ??= new Map())
 
 /** Lo que el `retry` lee de SessionRetry. */
 interface Reintento {
@@ -228,6 +229,23 @@ export function suplencias(ctx: { readonly session: Pick<ContextoHija['session']
       clase,
       decisionV2: reintento.decision,
     })
+
+    const cambio = cambios().get(reintento.sessionID)
+
+    cambios().delete(reintento.sessionID)
+
+    // El intento que sigue a un cambio sale con el suplente. Si sale con el mismo actor, el switchModel no se aplicó
+    // (pasó en una hija retomada con `model`) y forzar otro reintento con delay 0 era un loop: queda la decisión de V2.
+    if (cambio?.de === claveModelo(actual) && cambio.attempt === reintento.attempt - 1) {
+      log.error('el cambio de actor no se aplicó', {
+        sessionID: reintento.sessionID,
+        agente: reintento.agent,
+        actor: claveModelo(actual),
+        attempt: reintento.attempt,
+      })
+
+      return
+    }
 
     if (clase.tipo === 'velocidad' || clase.tipo === 'otro') {
       return
@@ -283,6 +301,7 @@ export function suplencias(ctx: { readonly session: Pick<ContextoHija['session']
     reintento.decision = { retry: true, delay: 0 }
     errores().delete(reintento.sessionID)
     fallos().delete(reintento.sessionID)
+    cambios().set(reintento.sessionID, { de: claveModelo(actual), attempt: reintento.attempt })
     const motivo = {
       cuota: 'cuota agotada',
       interno: `${config.fallosInternos ?? FALLOS_INTERNOS} fallos seguidos del proveedor`,

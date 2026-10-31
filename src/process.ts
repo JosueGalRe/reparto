@@ -15,6 +15,8 @@ interface Proceso {
   errores?: Map<string, ErrorCrudo>
   /** Fallos 5xx seguidos del actor actual, por sesión. */
   fallos?: Map<string, { actor: string; n: number }>
+  /** Último cambio de actor por sesión, hasta el retry siguiente: de qué actor y en qué intento. */
+  cambios?: Map<string, { de: string; attempt: number }>
   /** `subagent` con `model` explícito, por id de la tool call, hasta que su hija lo consume o la call termina. */
   pedidos?: Map<string, { padre: string; agente: string; actor: Actor }>
 }

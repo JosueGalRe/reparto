@@ -61,3 +61,29 @@ test('auth da de baja al proveedor por plazoAuth y entra el suplente de otro pro
   expect(cambios.at(-1)).toEqual({ providerID: 'github-copilot', id: 'claude-opus-5.5' })
   expect(entrada.decision).toEqual({ retry: true, delay: 0 })
 })
+
+test('si el reintento que sigue al cambio sale con el mismo actor, queda la decisión de V2', async () => {
+  // Given: un cambio en el intento 2.
+  await retry(reintento('ses_guard', 2))
+  const hechos = cambios.length
+  const siguienteIntento = reintento('ses_guard', 3)
+
+  // When: el intento 3 sigue en Kiro, porque el switchModel no se aplicó.
+  await retry(siguienteIntento)
+
+  // Then: no vuelve a cambiar ni fuerza delay 0, que lo dejaba en un loop.
+  expect(cambios).toHaveLength(hechos)
+  expect(siguienteIntento.decision).toEqual({ retry: true, delay: 1000 })
+})
+
+test('una ejecución nueva con el mismo actor no cuenta como cambio fallido', async () => {
+  // Given: un cambio en una ejecución anterior de la sesión.
+  await retry(reintento('ses_turno', 2))
+  const nuevaEjecucion = reintento('ses_turno', 2)
+
+  // When: en otro turno vuelve a fallar Kiro en su primer intento.
+  await retry(nuevaEjecucion)
+
+  // Then: entra el suplente como siempre.
+  expect(nuevaEjecucion.decision).toEqual({ retry: true, delay: 0 })
+})
